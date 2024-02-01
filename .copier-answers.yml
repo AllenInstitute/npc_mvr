@@ -1,0 +1,22 @@
+# Changes here will be overwritten by Copier
+_commit: 69236c7
+_src_path: gh:alleninstitute/copier-pdm-npc
+add_requirements_txt: false
+author_email: ben.hardcastle@alleninstitue.org
+author_fullname: Ben Hardcastle
+author_username: bjhardcastle
+build_doc: true
+copyright_date: '2024'
+copyright_holder: Allen Institute for Neural Dynamics
+copyright_holder_email: ''
+copyright_license: MIT
+package_version: 0.1.0
+project_description: Tools for reading raw video data from MindScope Neuropixels experiments,
+    compatible with data in the cloud.
+project_name: npc_mvr
+python_package_distribution_name: npc-mvr
+python_package_import_name: npc_mvr
+python_package_requires_python: '>=3.9'
+repository_name: npc_mvr
+repository_namespace: AllenInstitute
+

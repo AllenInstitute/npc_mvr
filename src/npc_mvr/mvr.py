@@ -6,12 +6,12 @@ from collections.abc import Container, Iterable, Mapping
 from typing import Literal, TypeVar, Union
 
 import cv2
+import npc_io
+import npc_sync
 import numpy as np
 import numpy.typing as npt
 import upath
 from typing_extensions import TypeAlias
-import npc_io
-import npc_sync
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +59,9 @@ def get_video_frame_times(
     """
     videos = get_video_file_paths(*video_paths)
     jsons = get_video_info_file_paths(*video_paths)
-    camera_to_video_path = {
-        get_camera_name(path.stem): path for path in videos
-    }
+    camera_to_video_path = {get_camera_name(path.stem): path for path in videos}
     camera_to_json_data = {
-        get_camera_name(path.stem): get_video_info_data(path)
-        for path in jsons
+        get_camera_name(path.stem): get_video_info_data(path) for path in jsons
     }
     camera_exposing_times = get_cam_exposing_times_on_sync(sync_path_or_dataset)
     frame_times: dict[upath.UPath, npt.NDArray[np.floating]] = {}
@@ -197,6 +194,7 @@ def get_video_info_file_paths(*paths: npc_io.PathLike) -> tuple[upath.UPath, ...
         for p in get_video_file_paths(*paths)
     )
 
+
 def get_video_info_data(path_or_info_data: npc_io.PathLike | Mapping) -> MVRInfoData:
     if isinstance(path_or_info_data, Mapping):
         if "RecordingReport" in path_or_info_data:
@@ -229,8 +227,6 @@ def get_video_data(
     return cv2.VideoCapture(path)
 
 
-
-
 def get_total_frames_in_video(
     video_path: npc_io.PathLike,
 ) -> int:
@@ -246,9 +242,7 @@ def get_augmented_camera_info(
 ) -> dict[Literal["eye", "face", "behavior"], dict[str, int | float]]:
     videos = get_video_file_paths(*video_paths)
     jsons = get_video_info_file_paths(*video_paths)
-    camera_to_video_path = {
-        get_camera_name(path.stem): path for path in videos
-    }
+    camera_to_video_path = {get_camera_name(path.stem): path for path in videos}
     camera_to_json_path = {get_camera_name(path.stem): path for path in jsons}
 
     cam_exposing_times = get_cam_exposing_times_on_sync(sync_path_or_dataset)
@@ -291,5 +285,5 @@ def get_augmented_camera_info(
 
 if __name__ == "__main__":
     from npc_mvr import testmod
-    
+
     testmod()

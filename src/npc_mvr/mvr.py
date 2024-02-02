@@ -1,5 +1,4 @@
 from __future__ import annotations
-import contextlib
 
 import json
 import logging
@@ -23,25 +22,26 @@ recording."""
 
 CameraName: TypeAlias = Literal["eye", "face", "behavior"]
 
-class  MVRDataset:
+
+class MVRDataset:
     """A collection of paths + data for processing the output from MVR for one
     session.
-    
+
     Expectations:
-    
+
     - 3 .mp4/.avi video file paths (eye, face, behavior)
     - 3 .json info file paths (eye, face, behavior)
     - the associated data as Python objects for each of the above (e.g mp3 -> CV2,
     json -> dict)
-    
+
     - 1 sync file path (h5)
     - sync data as a SyncDataset object
-    
+
     Assumptions:
     - all files live in the same directory (so we can initialize with a single path)
     - MVR was started after sync
     - MVR may have been stopped before sync
-    
+
     >>> import npc_mvr
 
     >>> d = npc_mvr.MVRDataset('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior')
@@ -64,13 +64,15 @@ class  MVRDataset:
 
     # get frame times for each camera on sync clock
     # - nans correspond to frames not recorded on sync
-    # - first nan is metadata frame 
+    # - first nan is metadata frame
     >>> d.frame_times['behavior']
     array([       nan,   14.08409,   14.10075, ..., 5084.4582 , 5084.47487, 5084.49153])
-    
+
     """
-    
-    def __init__(self, session_dir: npc_io.PathLike, sync_path: npc_io.PathLike | None = None):
+
+    def __init__(
+        self, session_dir: npc_io.PathLike, sync_path: npc_io.PathLike | None = None
+    ):
         self.session_dir = npc_io.from_pathlike(session_dir)
         if sync_path is not None:
             self.sync_path = npc_io.from_pathlike(sync_path)
@@ -81,44 +83,57 @@ class  MVRDataset:
     @npc_io.cached_property
     def augmented_camera_info(self) -> dict[CameraName, dict[str, int | float]]:
         return get_augmented_camera_info(self.sync_data, *self.video_paths.values())
-    
+
     @npc_io.cached_property
     def frame_times(self) -> dict[CameraName, npt.NDArray[np.float64]]:
         """Returns frametimes (in seconds) as measured on sync clock for each
         camera.
-        
+
         - see `get_video_frame_times` for more details
         """
-        return {get_camera_name(p.stem): times for p, times in get_video_frame_times(self.sync_data, *self.video_paths.values()).items()}
-        
+        return {
+            get_camera_name(p.stem): times
+            for p, times in get_video_frame_times(
+                self.sync_data, *self.video_paths.values()
+            ).items()
+        }
+
     @npc_io.cached_property
     def video_paths(self) -> dict[CameraName, upath.UPath]:
-        return {get_camera_name(p.stem): p for p in get_video_file_paths(self.session_dir)}
-    
+        return {
+            get_camera_name(p.stem): p for p in get_video_file_paths(self.session_dir)
+        }
+
     @npc_io.cached_property
     def video_data(self) -> npc_io.LazyDict[str, cv2.VideoCapture]:
         return npc_io.LazyDict(
             (camera_name, (get_video_data, (path,), {}))
             for camera_name, path in self.video_paths.items()
         )
-        
+
     @npc_io.cached_property
     def info_paths(self) -> dict[CameraName, upath.UPath]:
-        return {get_camera_name(p.stem): p for p in get_video_info_file_paths(self.session_dir)}
-    
+        return {
+            get_camera_name(p.stem): p
+            for p in get_video_info_file_paths(self.session_dir)
+        }
+
     @npc_io.cached_property
     def info_data(self) -> dict[CameraName, MVRInfoData]:
-        return {camera_name: get_video_info_data(path) for camera_name, path in self.info_paths.items()}
-    
+        return {
+            camera_name: get_video_info_data(path)
+            for camera_name, path in self.info_paths.items()
+        }
+
     @npc_io.cached_property
     def sync_path(self) -> upath.UPath:
         return npc_sync.get_single_sync_path(self.session_dir)
-    
+
     @npc_io.cached_property
     def sync_data(self) -> npc_sync.SyncDataset:
         return npc_sync.get_sync_data(self.sync_path)
 
-    
+
 def get_camera_name(path: str) -> CameraName:
     names: dict[str, CameraName] = {
         "eye": "eye",

@@ -5,7 +5,7 @@
 groups = ["default", "dev", "docs"]
 strategy = ["cross_platform", "inherit_metadata"]
 lock_version = "4.4.1"
-content_hash = "sha256:d5a09304e712d1212c8457a83cb08016b6917d949258bfb272d3b793f0a0ca24"
+content_hash = "sha256:c51253605ee6a5718372d99f506b5bcdf6606a7d6629847f2a6e8095f2c265df"
 
 [[package]]
 name = "aiobotocore"
@@ -1529,8 +1529,22 @@ files = [
 ]
 
 [[package]]
+name = "npc-session"
+version = "0.1.33"
+requires_python = ">=3.9"
+summary = "Basic tools for parsing subject, session, date and time associated with data from the Mindscope Neuropixels team, in the cloud."
+groups = ["default"]
+dependencies = [
+    "typing-extensions>=4.7.1",
+]
+files = [
+    {file = "npc_session-0.1.33-py3-none-any.whl", hash = "sha256:a26a2dfc5f88b5f0b0c5ef76fe6a7dbaa63c0eea2df8c7390e74e5e5d3364d6e"},
+    {file = "npc_session-0.1.33.tar.gz", hash = "sha256:3f008c58e0f4a9b6ed76b413b91e8525e5ff6a0e8c9cc3960ab9e893443b8d52"},
+]
+
+[[package]]
 name = "npc-sync"
-version = "0.1.2"
+version = "0.1.5"
 requires_python = ">=3.9"
 summary = "Repackaging of AllenSDK.SyncDataset with extra functionality, compatible with data in the cloud."
 groups = ["default"]
@@ -1538,12 +1552,13 @@ dependencies = [
     "h5py>=3.10.0",
     "matplotlib>=3.8.2",
     "npc-io>=0.1.20",
+    "npc-session>=0.1.33",
     "numpy>=1.26.3",
     "typing-extensions>=4.9.0",
 ]
 files = [
-    {file = "npc-sync-0.1.2.tar.gz", hash = "sha256:21cbe107c222dc455fd6ffd3c88249278b1e7846bbeb98c7bb7c10b228cdf5e5"},
-    {file = "npc_sync-0.1.2-py3-none-any.whl", hash = "sha256:7ca8a843a7f95e0645f2392808eeab1317c0aed02ed3edf89ea3d2ad6a55df0c"},
+    {file = "npc-sync-0.1.5.tar.gz", hash = "sha256:faa9ad30754e6c3d0cbb5b59fdb735d1fbc4a677e70e1ea0a640e25f3f2c2911"},
+    {file = "npc_sync-0.1.5-py3-none-any.whl", hash = "sha256:f2e95bca585de28506a7f76a0740c996e4491dfcd4444c07db980ca20a27576f"},
 ]
 
 [[package]]

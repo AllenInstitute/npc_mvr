@@ -16,8 +16,33 @@ conda activate npc_mvr
 pip install npc_mvr
 ```
 
+## Python
 ```python
-import npc_mvr
+>>> import npc_mvr
+
+>>> d = npc_mvr.MVRDataset('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior')
+
+# get paths
+>>> d.video_paths['behavior']
+S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior/Behavior_20230803T120430.mp4')
+>>> d.info_paths['behavior']
+S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior/Behavior_20230803T120430.json')
+>>> d.sync_path
+S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior/20230803T120415.h5')
+
+# get data
+>>> type(d.video_data['behavior'])
+<class 'cv2.VideoCapture'>
+>>> type(d.info_data['behavior'])
+<class 'dict'>
+>>> type(d.sync_data)
+<class 'npc_sync.sync.SyncDataset'>
+
+# get frame times for each camera on sync clock
+# - nans correspond to frames not recorded on sync
+# - first nan is metadata frame 
+>>> d.frame_times['behavior']
+array([       nan,   14.08409,   14.10075, ..., 5084.4582 , 5084.47487, 5084.49153]) 
 ```
 
 # Development

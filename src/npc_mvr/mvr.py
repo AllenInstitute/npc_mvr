@@ -1,9 +1,10 @@
 from __future__ import annotations
+import datetime
 
 import json
 import logging
 from collections.abc import Container, Iterable, Mapping
-from typing import Literal, TypeVar, Union
+from typing import Any, Literal, TypeVar, Union
 
 import cv2
 import npc_io
@@ -16,7 +17,7 @@ from typing_extensions import TypeAlias
 logger = logging.getLogger(__name__)
 
 
-MVRInfoData: TypeAlias = Mapping[str, Union[str, int, float, list[str]]]
+MVRInfoData: TypeAlias = Mapping[str, Any]
 """Contents of `RecordingReport` from a camera's info.json for an MVR
 recording."""
 
@@ -68,11 +69,12 @@ class MVRDataset:
     >>> d.frame_times['behavior']
     array([       nan,   14.08409,   14.10075, ..., 5084.4582 , 5084.47487, 5084.49153])
 
+    >>> d.validate()
     """
 
     def __init__(
         self, session_dir: npc_io.PathLike, sync_path: npc_io.PathLike | None = None
-    ):
+    ) -> None:
         self.session_dir = npc_io.from_pathlike(session_dir)
         if sync_path is not None:
             self.sync_path = npc_io.from_pathlike(sync_path)
@@ -80,9 +82,6 @@ class MVRDataset:
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.session_dir})"
 
-    @npc_io.cached_property
-    def augmented_camera_info(self) -> dict[CameraName, dict[str, int | float]]:
-        return get_augmented_camera_info(self.sync_data, *self.video_paths.values())
 
     @npc_io.cached_property
     def frame_times(self) -> dict[CameraName, npt.NDArray[np.float64]]:
@@ -132,7 +131,93 @@ class MVRDataset:
     @npc_io.cached_property
     def sync_data(self) -> npc_sync.SyncDataset:
         return npc_sync.get_sync_data(self.sync_path)
+    
+    @npc_io.cached_property
+    def video_start_times(self) -> dict[CameraName, datetime.datetime]:
+        """Naive datetime of when the video recording started. 
+        - can be compared to `sync_data.start_time` to check if MVR was started
+          after sync.
+        """
+        return {
+            camera_name: datetime.datetime.fromisoformat(self.info_data[camera_name]["TimeStart"][:-1]) # discard 'Z'
+            for camera_name in self.info_data
+        }
+        
+    @npc_io.cached_property
+    def augmented_camera_info(self) -> dict[CameraName, dict[str, Any]]:
+        cam_exposing_times = get_cam_exposing_times_on_sync(self.sync_data)
+        cam_transfer_times = get_cam_transfer_times_on_sync(self.sync_data)
+        cam_exposing_falling_edge_times = get_cam_exposing_falling_edge_times_on_sync(
+            self.sync_data
+        )
+        augmented_camera_info = {}
+        for camera_name, video_path in self.video_paths.items():
+            camera_info = dict(self.info_data[camera_name]) # copy
+            frames_lost = camera_info["FramesLostCount"]
 
+            num_exposures = cam_exposing_times[camera_name].size
+            num_transfers = cam_transfer_times[camera_name].size
+
+            num_frames_in_video = get_total_frames_in_video(video_path)
+            num_expected_from_sync = num_transfers - frames_lost + 1
+            signature_exposures = (
+                cam_exposing_falling_edge_times[camera_name][:10]
+                - cam_exposing_times[camera_name][:10]
+            )
+
+            camera_info["num_frames_exposed"] = num_exposures
+            camera_info["num_frames_transfered"] = num_transfers
+            camera_info["num_frames_in_video"] = num_frames_in_video
+            camera_info["num_frames_expected_from_sync"] = num_expected_from_sync
+            camera_info["expected_minus_actual"] = (
+                num_expected_from_sync - num_frames_in_video
+            )
+            camera_info["num_frames_from_sync"] = len(self.frame_times[camera_name])
+            camera_info["signature_exposure_duration"] = np.round(
+                np.median(signature_exposures), 3
+            )
+            camera_info["lost_frame_percentage"] = 100 * camera_info["FramesLostCount"] / camera_info["FramesRecorded"] # type: ignore[operator]
+            augmented_camera_info[camera_name] = camera_info
+        return augmented_camera_info
+            
+    def validate(self) -> None:
+        """Check all data required for processing is present and consistent. Check dropped frames
+        count."""
+        for camera in self.video_paths:
+            video = self.video_data[camera]
+            info_json = self.info_data[camera]
+            augmented_info = self.augmented_camera_info[camera]
+            times = self.frame_times[camera]
+            
+            if not times.any() or np.isnan(times).all():
+                raise AssertionError(f"No frames recorded on sync for {camera}")
+            if (a := video.get(cv2.CAP_PROP_FRAME_COUNT)) - (b := info_json["FramesRecorded"]) > 1:
+                # metadata frame is added to the video file, so the difference should be 1
+                raise AssertionError(
+                    f"Frame count from {camera} video file ({a}) does not match info.json ({b})"
+                )
+            if self.video_start_times[camera] < self.sync_data.start_time:
+                raise AssertionError(f"Video start time is before sync start time for {camera}")
+            
+            if not is_acceptable_frame_rate(info_json["FPS"]):
+                raise AssertionError(f"Invalid frame rate: {info_json['FPS']=}")
+            
+            if not is_acceptable_lost_frame_percentage(augmented_info["lost_frame_percentage"]):
+                raise AssertionError(f"Lost frame percentage too high: {augmented_info['lost_frame_percentage']=}")
+            
+            if not is_acceptable_expected_minus_actual_frame_count(augmented_info["expected_minus_actual"]):
+                if augmented_info["num_frames_expected_from_sync"] != augmented_info["num_frames_from_sync"]:
+                    # if number of frame times on sync matches the number expected, this isn't a hard failure
+                    raise AssertionError(f"Expected minus actual frame count too high: {augmented_info['expected_minus_actual']=}")
+            
+def is_acceptable_frame_rate(frame_rate: float) -> bool:
+    return abs(frame_rate - 60) <= 0.05
+
+def is_acceptable_lost_frame_percentage(lost_frame_percentage: float) -> bool:
+    return lost_frame_percentage < 0.05
+
+def is_acceptable_expected_minus_actual_frame_count(expected_minus_actual: int | float) -> bool:
+    return abs(expected_minus_actual) < 10
 
 def get_camera_name(path: str) -> CameraName:
     names: dict[str, CameraName] = {
@@ -347,53 +432,6 @@ def get_total_frames_in_video(
     num_frames = v.get(cv2.CAP_PROP_FRAME_COUNT)
 
     return int(num_frames)
-
-
-def get_augmented_camera_info(
-    sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
-    *video_paths: npc_io.PathLike,
-) -> dict[CameraName, dict[str, int | float]]:
-    videos = get_video_file_paths(*video_paths)
-    jsons = get_video_info_file_paths(*video_paths)
-    camera_to_video_path = {get_camera_name(path.stem): path for path in videos}
-    camera_to_json_path = {get_camera_name(path.stem): path for path in jsons}
-
-    cam_exposing_times = get_cam_exposing_times_on_sync(sync_path_or_dataset)
-    cam_transfer_times = get_cam_transfer_times_on_sync(sync_path_or_dataset)
-    cam_exposing_falling_edge_times = get_cam_exposing_falling_edge_times_on_sync(
-        sync_path_or_dataset
-    )
-
-    augmented_camera_info = {}
-    for camera, video_path in camera_to_video_path.items():
-        camera_info = json.loads(camera_to_json_path[camera].read_bytes())[
-            "RecordingReport"
-        ]
-
-        frames_lost = camera_info["FramesLostCount"]
-        num_exposures = cam_exposing_times[camera].size
-        num_transfers = cam_transfer_times[camera].size
-
-        num_frames_in_video = get_total_frames_in_video(video_path)
-        num_expected_from_sync = num_transfers - frames_lost + 1
-        signature_exposures = (
-            cam_exposing_falling_edge_times[camera][:10]
-            - cam_exposing_times[camera][:10]
-        )
-
-        camera_info["num_frames_exposed"] = num_exposures
-        camera_info["num_frames_transfered"] = num_transfers
-        camera_info["num_frames_in_video"] = num_frames_in_video
-        camera_info["num_expected_from_sync"] = num_expected_from_sync
-        camera_info["expected_minus_actual"] = (
-            num_expected_from_sync - num_frames_in_video
-        )
-        camera_info["signature_exposure_duration"] = np.round(
-            np.median(signature_exposures), 3
-        )
-        augmented_camera_info[camera] = camera_info
-
-    return augmented_camera_info
 
 
 if __name__ == "__main__":

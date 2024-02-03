@@ -43,6 +43,8 @@ S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior/2023080
 # - first nan is metadata frame 
 >>> d.frame_times['behavior']
 array([       nan,   14.08409,   14.10075, ..., 5084.4582 , 5084.47487, 5084.49153]) 
+
+>>> d.validate()
 ```
 
 # Development

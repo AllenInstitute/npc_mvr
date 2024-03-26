@@ -210,7 +210,7 @@ class MVRDataset:
             camera_info["signature_exposure_duration"] = np.round(
                 np.median(signature_exposures), 3
             )
-            camera_info["lost_frame_percentage"] = 100 * camera_info["FramesLostCount"] / camera_info["FramesRecorded"] # type: ignore[operator]
+            camera_info["lost_frame_percentage"] = 100 * camera_info["FramesLostCount"] / camera_info["FramesRecorded"]
             augmented_camera_info[camera_name] = camera_info
         return augmented_camera_info
             

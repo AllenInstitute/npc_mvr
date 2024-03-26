@@ -1,11 +1,11 @@
 from __future__ import annotations
-import datetime
 
+import datetime
 import functools
 import json
 import logging
 from collections.abc import Container, Iterable, Mapping
-from typing import Any, Literal, TypeVar, Union
+from typing import Any, Literal, TypeVar
 
 import cv2
 import npc_io
@@ -85,25 +85,27 @@ class MVRDataset:
     @property
     def session_dir(self) -> upath.UPath:
         return self._session_dir
-    
+
     @session_dir.setter
     def session_dir(self, value: npc_io.PathLike) -> None:
         path = npc_io.from_pathlike(value)
         if path.name in ("behavior", "behavior_videos", "behavior-videos"):
             path = path.parent
-            logger.debug(f"Setting session directory as {path}: after March 2024 video and sync no longer stored together")
+            logger.debug(
+                f"Setting session directory as {path}: after March 2024 video and sync no longer stored together"
+            )
         self._session_dir = path
 
     @npc_io.cached_property
     def is_cloud(self) -> bool:
         return self.session_dir.protocol not in ("file", "")
-    
+
     @npc_io.cached_property
     def sync_dir(self) -> upath.UPath:
         if (path := self.session_dir / "behavior").exists():
             return path
         return self.session_dir
-    
+
     @npc_io.cached_property
     def video_dir(self) -> upath.UPath:
         if not self.is_cloud:
@@ -161,18 +163,20 @@ class MVRDataset:
     @npc_io.cached_property
     def sync_data(self) -> npc_sync.SyncDataset:
         return npc_sync.get_sync_data(self.sync_path)
-    
+
     @npc_io.cached_property
     def video_start_times(self) -> dict[CameraName, datetime.datetime]:
-        """Naive datetime of when the video recording started. 
+        """Naive datetime of when the video recording started.
         - can be compared to `sync_data.start_time` to check if MVR was started
           after sync.
         """
         return {
-            camera_name: datetime.datetime.fromisoformat(self.info_data[camera_name]["TimeStart"][:-1]) # discard 'Z'
+            camera_name: datetime.datetime.fromisoformat(
+                self.info_data[camera_name]["TimeStart"][:-1]
+            )  # discard 'Z'
             for camera_name in self.info_data
         }
-        
+
     @npc_io.cached_property
     def augmented_camera_info(self) -> dict[CameraName, dict[str, Any]]:
         cam_exposing_times = get_cam_exposing_times_on_sync(self.sync_data)
@@ -182,7 +186,7 @@ class MVRDataset:
         )
         augmented_camera_info = {}
         for camera_name, video_path in self.video_paths.items():
-            camera_info = dict(self.info_data[camera_name]) # copy
+            camera_info = dict(self.info_data[camera_name])  # copy
             frames_lost = camera_info["FramesLostCount"]
 
             num_exposures = cam_exposing_times[camera_name].size
@@ -202,18 +206,22 @@ class MVRDataset:
             camera_info["expected_minus_actual"] = (
                 num_expected_from_sync - num_frames_in_video
             )
-            camera_info["num_frames_from_sync"] = len(get_video_frame_times(
-                self.sync_path,
-                self.video_paths[camera_name],
-                apply_correction=False,
-                )[self.video_paths[camera_name]])
+            camera_info["num_frames_from_sync"] = len(
+                get_video_frame_times(
+                    self.sync_path,
+                    self.video_paths[camera_name],
+                    apply_correction=False,
+                )[self.video_paths[camera_name]]
+            )
             camera_info["signature_exposure_duration"] = np.round(
                 np.median(signature_exposures), 3
             )
-            camera_info["lost_frame_percentage"] = 100 * camera_info["FramesLostCount"] / camera_info["FramesRecorded"]
+            camera_info["lost_frame_percentage"] = (
+                100 * camera_info["FramesLostCount"] / camera_info["FramesRecorded"]
+            )
             augmented_camera_info[camera_name] = camera_info
         return augmented_camera_info
-            
+
     def validate(self) -> None:
         """Check all data required for processing is present and consistent. Check dropped frames
         count."""
@@ -222,36 +230,57 @@ class MVRDataset:
             info_json = self.info_data[camera]
             augmented_info = self.augmented_camera_info[camera]
             times = self.frame_times[camera]
-            
+
             if not times.any() or np.isnan(times).all():
                 raise AssertionError(f"No frames recorded on sync for {camera}")
-            if (a := video.get(cv2.CAP_PROP_FRAME_COUNT)) - (b := info_json["FramesRecorded"]) > 1:
+            if (a := video.get(cv2.CAP_PROP_FRAME_COUNT)) - (
+                b := info_json["FramesRecorded"]
+            ) > 1:
                 # metadata frame is added to the video file, so the difference should be 1
                 raise AssertionError(
                     f"Frame count from {camera} video file ({a}) does not match info.json ({b})"
                 )
             if self.video_start_times[camera] < self.sync_data.start_time:
-                raise AssertionError(f"Video start time is before sync start time for {camera}")
-            
+                raise AssertionError(
+                    f"Video start time is before sync start time for {camera}"
+                )
+
             if not is_acceptable_frame_rate(info_json["FPS"]):
                 raise AssertionError(f"Invalid frame rate: {info_json['FPS']=}")
-            
-            if not is_acceptable_lost_frame_percentage(augmented_info["lost_frame_percentage"]):
-                raise AssertionError(f"Lost frame percentage too high: {augmented_info['lost_frame_percentage']=}")
-            
-            if not is_acceptable_expected_minus_actual_frame_count(augmented_info["expected_minus_actual"]):
+
+            if not is_acceptable_lost_frame_percentage(
+                augmented_info["lost_frame_percentage"]
+            ):
+                raise AssertionError(
+                    f"Lost frame percentage too high: {augmented_info['lost_frame_percentage']=}"
+                )
+
+            if not is_acceptable_expected_minus_actual_frame_count(
+                augmented_info["expected_minus_actual"]
+            ):
                 # if number of frame times on sync matches the number expected, this isn't a hard failure
-                if augmented_info["num_frames_expected_from_sync"] != augmented_info["num_frames_from_sync"]:
-                    raise AssertionError(f"Expected minus actual frame count too high: {augmented_info['expected_minus_actual']=}")
-            
+                if (
+                    augmented_info["num_frames_expected_from_sync"]
+                    != augmented_info["num_frames_from_sync"]
+                ):
+                    raise AssertionError(
+                        f"Expected minus actual frame count too high: {augmented_info['expected_minus_actual']=}"
+                    )
+
+
 def is_acceptable_frame_rate(frame_rate: float) -> bool:
     return abs(frame_rate - 60) <= 0.05
+
 
 def is_acceptable_lost_frame_percentage(lost_frame_percentage: float) -> bool:
     return lost_frame_percentage < 0.05
 
-def is_acceptable_expected_minus_actual_frame_count(expected_minus_actual: int | float) -> bool:
+
+def is_acceptable_expected_minus_actual_frame_count(
+    expected_minus_actual: int | float,
+) -> bool:
     return abs(expected_minus_actual) < 20
+
 
 def get_camera_name(path: str) -> CameraName:
     names: dict[str, CameraName] = {
@@ -282,15 +311,15 @@ def get_video_frame_times(
         MVR previously ceased all TTL pulses before the recording was
         stopped, resulting in frames in the video that weren't registered
         in sync. MVR was fixed July 2023 after Corbett discovered the issue.
-        
+
         (only applied if `apply_correction` is True)
-        
+
     - frametimes from sync may be cut to match the number of frames in the video:
         after July 2023, we started seeing video files that had fewer frames than
-        timestamps in sync file. 
-        
+        timestamps in sync file.
+
         (only applied if `apply_correction` is True)
-        
+
     >>> sync_path = 's3://aind-private-data-prod-o5171v/ecephys_708019_2024-03-22_15-33-01/behavior/20240322T153301.h5'
     >>> video_path = 's3://aind-private-data-prod-o5171v/ecephys_708019_2024-03-22_15-33-01/behavior-videos'
     >>> frame_times = get_video_frame_times(sync_path, video_path)
@@ -312,7 +341,9 @@ def get_video_frame_times(
     frame_times: dict[upath.UPath, npt.NDArray[np.floating]] = {}
     for camera in camera_exposing_times:
         if camera in camera_to_video_path:
-            num_frames_in_video = get_total_frames_in_video(camera_to_video_path[camera])
+            num_frames_in_video = get_total_frames_in_video(
+                camera_to_video_path[camera]
+            )
             camera_frame_times = remove_lost_frame_times(
                 camera_exposing_times[camera],
                 get_lost_frames_from_camera_info(camera_to_json_data[camera]),
@@ -321,18 +352,20 @@ def get_video_frame_times(
             camera_frame_times = np.insert(camera_frame_times, 0, np.nan)
             # append nan frametimes for frames in the video file but are
             # unnaccounted for on sync:
-            if apply_correction and (
-                frames_missing_from_sync := num_frames_in_video
-                - len(camera_frame_times)
-            ) > 0:
+            if (
+                apply_correction
+                and (
+                    frames_missing_from_sync := num_frames_in_video
+                    - len(camera_frame_times)
+                )
+                > 0
+            ):
                 camera_frame_times = np.append(
                     camera_frame_times,
                     np.full(frames_missing_from_sync, np.nan),
                 )
             # cut times of sync events that don't correspond to frames in the video:
-            elif apply_correction and (
-                len(camera_frame_times) > num_frames_in_video
-            ):
+            elif apply_correction and (len(camera_frame_times) > num_frames_in_video):
                 camera_frame_times = camera_frame_times[:num_frames_in_video]
             if apply_correction:
                 assert len(camera_frame_times) == num_frames_in_video, (

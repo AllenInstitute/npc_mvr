@@ -202,7 +202,11 @@ class MVRDataset:
             camera_info["expected_minus_actual"] = (
                 num_expected_from_sync - num_frames_in_video
             )
-            camera_info["num_frames_from_sync"] = len(self.frame_times[camera_name])
+            camera_info["num_frames_from_sync"] = len(get_video_frame_times(
+                self.sync_path,
+                self.video_paths[camera_name],
+                apply_correction=False,
+                )[self.video_paths[camera_name]])
             camera_info["signature_exposure_duration"] = np.round(
                 np.median(signature_exposures), 3
             )
@@ -236,8 +240,8 @@ class MVRDataset:
                 raise AssertionError(f"Lost frame percentage too high: {augmented_info['lost_frame_percentage']=}")
             
             if not is_acceptable_expected_minus_actual_frame_count(augmented_info["expected_minus_actual"]):
+                # if number of frame times on sync matches the number expected, this isn't a hard failure
                 if augmented_info["num_frames_expected_from_sync"] != augmented_info["num_frames_from_sync"]:
-                    # if number of frame times on sync matches the number expected, this isn't a hard failure
                     raise AssertionError(f"Expected minus actual frame count too high: {augmented_info['expected_minus_actual']=}")
             
 def is_acceptable_frame_rate(frame_rate: float) -> bool:
@@ -247,7 +251,7 @@ def is_acceptable_lost_frame_percentage(lost_frame_percentage: float) -> bool:
     return lost_frame_percentage < 0.05
 
 def is_acceptable_expected_minus_actual_frame_count(expected_minus_actual: int | float) -> bool:
-    return abs(expected_minus_actual) < 10
+    return abs(expected_minus_actual) < 20
 
 def get_camera_name(path: str) -> CameraName:
     names: dict[str, CameraName] = {

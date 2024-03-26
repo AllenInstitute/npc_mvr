@@ -1,6 +1,7 @@
 from __future__ import annotations
 import datetime
 
+import functools
 import json
 import logging
 from collections.abc import Container, Iterable, Mapping
@@ -45,13 +46,13 @@ class MVRDataset:
 
     >>> import npc_mvr
 
-    >>> d = npc_mvr.MVRDataset('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior')
+    >>> d = npc_mvr.MVRDataset('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15')
 
     # get paths
     >>> d.video_paths['behavior']
-    S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior/Behavior_20230803T120430.mp4')
+    S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior_videos/Behavior_20230803T120430.mp4')
     >>> d.info_paths['behavior']
-    S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior/Behavior_20230803T120430.json')
+    S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior_videos/Behavior_20230803T120430.json')
     >>> d.sync_path
     S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior/20230803T120415.h5')
 
@@ -82,6 +83,36 @@ class MVRDataset:
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.session_dir})"
 
+    @property
+    def session_dir(self) -> upath.UPath:
+        return self._session_dir
+    
+    @session_dir.setter
+    def session_dir(self, value: npc_io.PathLike) -> None:
+        path = npc_io.from_pathlike(value)
+        if path.name in ("behavior", "behavior_videos", "behavior-videos"):
+            path = path.parent
+            logger.debug(f"Setting session directory as {path}: after March 2024 video and sync no longer stored together")
+        self._session_dir = path
+
+    @npc_io.cached_property
+    def is_cloud(self) -> bool:
+        return self.session_dir.protocol not in ("file", "")
+    
+    @npc_io.cached_property
+    def sync_dir(self) -> upath.UPath:
+        if (path := self.session_dir / "behavior").exists():
+            return path
+        return self.session_dir
+    
+    @npc_io.cached_property
+    def video_dir(self) -> upath.UPath:
+        if not self.is_cloud:
+            return self.session_dir
+        for name in ("behavior_videos", "behavior-videos", "behavior"):
+            if (path := self.session_dir / name).exists():
+                return path
+        return self.session_dir
 
     @npc_io.cached_property
     def frame_times(self) -> dict[CameraName, npt.NDArray[np.float64]]:
@@ -100,7 +131,7 @@ class MVRDataset:
     @npc_io.cached_property
     def video_paths(self) -> dict[CameraName, upath.UPath]:
         return {
-            get_camera_name(p.stem): p for p in get_video_file_paths(self.session_dir)
+            get_camera_name(p.stem): p for p in get_video_file_paths(self.video_dir)
         }
 
     @npc_io.cached_property
@@ -114,7 +145,7 @@ class MVRDataset:
     def info_paths(self) -> dict[CameraName, upath.UPath]:
         return {
             get_camera_name(p.stem): p
-            for p in get_video_info_file_paths(self.session_dir)
+            for p in get_video_info_file_paths(self.video_dir)
         }
 
     @npc_io.cached_property
@@ -126,7 +157,7 @@ class MVRDataset:
 
     @npc_io.cached_property
     def sync_path(self) -> upath.UPath:
-        return npc_sync.get_single_sync_path(self.session_dir)
+        return npc_sync.get_single_sync_path(self.sync_dir)
 
     @npc_io.cached_property
     def sync_data(self) -> npc_sync.SyncDataset:
@@ -249,8 +280,13 @@ def get_video_frame_times(
         stopped, resulting in frames in the video that weren't registered
         in sync. MVR was fixed July 2023 after Corbett discovered the issue.
 
+    >>> sync_path = 's3://aind-private-data-prod-o5171v/ecephys_708019_2024-03-22_15-33-01/behavior/20240322T153301.h5'
+    >>> video_path = 's3://aind-private-data-prod-o5171v/ecephys_708019_2024-03-22_15-33-01/behavior_videos'
+    >>> frame_times = get_video_frame_times(sync_path, video_path)
+    >>> [len(frames) for frames in frame_times.values()]
+    [103406, 103406, 103406]
     >>> sync_path = 's3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior/20230803T120415.h5'
-    >>> video_path = 's3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior'
+    >>> video_path = 's3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior_videos'
     >>> frame_times = get_video_frame_times(sync_path, video_path)
     >>> [len(frames) for frames in frame_times.values()]
     [304229, 304229, 304229]
@@ -407,7 +443,7 @@ def get_video_data(
     video_or_video_path: cv2.VideoCapture | npc_io.PathLike,
 ) -> cv2.VideoCapture:
     """
-    >>> path = 's3://aind-ephys-data/ecephys_660023_2023-08-08_07-58-13/behavior/Behavior_20230808T130057.mp4'
+    >>> path = 's3://aind-ephys-data/ecephys_660023_2023-08-08_07-58-13/behavior_videos/Behavior_20230808T130057.mp4'
     >>> v = get_video_data(path)
     >>> assert isinstance(v, cv2.VideoCapture)
     >>> assert v.get(cv2.CAP_PROP_FRAME_COUNT) != 0
@@ -417,7 +453,7 @@ def get_video_data(
 
     video_path = npc_io.from_pathlike(video_or_video_path)
     # check if this is a local or cloud path
-    is_local = video_path.as_uri()[:4] == "file"
+    is_local = video_path.protocol in ("file", "")
     if is_local:
         path = video_path.as_posix()
     else:
@@ -425,6 +461,7 @@ def get_video_data(
     return cv2.VideoCapture(path)
 
 
+@functools.cache
 def get_total_frames_in_video(
     video_path: npc_io.PathLike,
 ) -> int:

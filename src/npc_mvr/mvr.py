@@ -68,8 +68,7 @@ class MVRDataset:
     # - nans correspond to frames not recorded on sync
     # - first nan is metadata frame
     >>> d.frame_times['behavior']
-    array([       nan,   14.08409,   14.10075, ..., 5084.4582 , 5084.47487, 5084.49153])
-
+    array([     nan, 14.08409, 14.10075, ...,      nan,      nan,      nan])
     >>> d.validate()
     """
 
@@ -265,6 +264,7 @@ def get_camera_name(path: str) -> CameraName:
 def get_video_frame_times(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
     *video_paths: npc_io.PathLike,
+    apply_correction: bool = True,
 ) -> dict[upath.UPath, npt.NDArray[np.float64]]:
     """Returns frametimes as measured on sync clock for each video file.
 
@@ -275,21 +275,28 @@ def get_video_frame_times(
     - values are arrays of frame times in seconds
     - the first frametime will be a nan value (corresponding to a metadata frame)
     - frames at the end may also be nan values:
-
         MVR previously ceased all TTL pulses before the recording was
         stopped, resulting in frames in the video that weren't registered
         in sync. MVR was fixed July 2023 after Corbett discovered the issue.
-
+        
+        (only applied if `apply_correction` is True)
+        
+    - frametimes from sync may be cut to match the number of frames in the video:
+        after July 2023, we started seeing video files that had fewer frames than
+        timestamps in sync file. 
+        
+        (only applied if `apply_correction` is True)
+        
     >>> sync_path = 's3://aind-private-data-prod-o5171v/ecephys_708019_2024-03-22_15-33-01/behavior/20240322T153301.h5'
-    >>> video_path = 's3://aind-private-data-prod-o5171v/ecephys_708019_2024-03-22_15-33-01/behavior_videos'
+    >>> video_path = 's3://aind-private-data-prod-o5171v/ecephys_708019_2024-03-22_15-33-01/behavior-videos'
     >>> frame_times = get_video_frame_times(sync_path, video_path)
     >>> [len(frames) for frames in frame_times.values()]
-    [103406, 103406, 103406]
+    [103418, 103396, 103406]
     >>> sync_path = 's3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior/20230803T120415.h5'
     >>> video_path = 's3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior_videos'
     >>> frame_times = get_video_frame_times(sync_path, video_path)
     >>> [len(frames) for frames in frame_times.values()]
-    [304229, 304229, 304229]
+    [304233, 304240, 304236]
     """
     videos = get_video_file_paths(*video_paths)
     jsons = get_video_info_file_paths(*video_paths)
@@ -301,6 +308,7 @@ def get_video_frame_times(
     frame_times: dict[upath.UPath, npt.NDArray[np.floating]] = {}
     for camera in camera_exposing_times:
         if camera in camera_to_video_path:
+            num_frames_in_video = get_total_frames_in_video(camera_to_video_path[camera])
             camera_frame_times = remove_lost_frame_times(
                 camera_exposing_times[camera],
                 get_lost_frames_from_camera_info(camera_to_json_data[camera]),
@@ -309,13 +317,24 @@ def get_video_frame_times(
             camera_frame_times = np.insert(camera_frame_times, 0, np.nan)
             # append nan frametimes for frames in the video file but are
             # unnaccounted for on sync:
-            if (
-                frames_missing_from_sync := len(frame_times)
-                - get_total_frames_from_camera_info(camera_to_json_data[camera])
+            if apply_correction and (
+                frames_missing_from_sync := num_frames_in_video
+                - len(camera_frame_times)
             ) > 0:
                 camera_frame_times = np.append(
                     camera_frame_times,
                     np.full(frames_missing_from_sync, np.nan),
+                )
+            # cut times of sync events that don't correspond to frames in the video:
+            elif apply_correction and (
+                len(camera_frame_times) > num_frames_in_video
+            ):
+                camera_frame_times = camera_frame_times[:num_frames_in_video]
+            if apply_correction:
+                assert len(camera_frame_times) == num_frames_in_video, (
+                    f"Expected {num_frames_in_video} frame times, got {len(camera_frame_times)} "
+                    f"for {camera_to_video_path[camera]}"
+                    f"{'' if apply_correction else ' (try getting frametimes with `apply_correction=True`)'}"
                 )
             frame_times[camera_to_video_path[camera]] = camera_frame_times
     return frame_times

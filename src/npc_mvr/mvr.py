@@ -277,7 +277,12 @@ class MVRDataset:
                 raise AssertionError(
                     f"Video start time is before sync start time for {camera}"
                 )
-
+            if hasattr(self, "num_lost_frames_from_barcodes"):
+                num_frames_lost_in_json = len(get_lost_frames_from_camera_info(info_json))
+                if num_frames_lost_in_json != (b := self.num_lost_frames_from_barcodes[camera]):
+                    raise AssertionError(
+                        f"Lost frame count from frame barcodes ({b}) does not match `FramesLostCount` in info.json ({num_frames_lost_in_json}) for {camera=}"
+                    )
             if not is_acceptable_frame_rate(info_json["FPS"]):
                 raise AssertionError(f"Invalid frame rate: {info_json['FPS']=}")
 

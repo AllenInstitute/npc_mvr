@@ -222,6 +222,20 @@ class MVRDataset:
             augmented_camera_info[camera_name] = camera_info
         return augmented_camera_info
 
+    @npc_io.cached_property
+    def lick_frames(self) -> npt.NDArray[np.intp]:
+        if self.sync_path:
+            lick_times = self.sync_data.get_rising_edges("lick_sensor", units="seconds")
+            return np.array([
+                np.nanargmin(np.abs(self.frame_times["behavior"] - time))
+                for time in lick_times
+            ])
+        else:
+            try:    
+                return get_lick_frames_from_behavior_info(self.info_data['behavior'])
+            except ValueError as exc:
+                raise AttributeError("Lick frames not recorded in MVR in this session") from exc
+        
     def validate(self) -> None:
         """Check all data required for processing is present and consistent. Check dropped frames
         count."""

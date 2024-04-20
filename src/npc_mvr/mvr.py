@@ -223,6 +223,25 @@ class MVRDataset:
         return augmented_camera_info
 
     @npc_io.cached_property
+    def num_lost_frames_from_barcodes(self) -> dict[CameraName, int]:
+        """Get the frame ID from the barcode in the last frame of the video: if no
+        frames were lost, this should be equal to the number of frames in the
+        video minus 1 (the frame ID is 0-indexed)."""
+        cam_to_frames = {}
+        for camera_name in self.video_data:
+            video_data = self.video_data[camera_name]
+            video_info = self.info_data[camera_name]
+            actual_last_frame_index = int(video_data.get(cv2.CAP_PROP_FRAME_COUNT) - 1)
+            # get the last frame id from the video file
+            try:
+                last_frame_barcode_value: int = get_frame_numbers_from_barcodes(video_data, video_info, frame_numbers=actual_last_frame_index)[0]
+            except ValueError as exc:
+                raise AttributeError(f"Video file {self.video_paths[camera_name]} does not have barcodes in frames") from exc
+            num_lost_frames = last_frame_barcode_value - actual_last_frame_index
+            cam_to_frames[camera_name] = int(num_lost_frames)
+        return cam_to_frames
+
+    @npc_io.cached_property
     def lick_frames(self) -> npt.NDArray[np.intp]:
         if self.sync_path:
             lick_times = self.sync_data.get_rising_edges("lick_sensor", units="seconds")

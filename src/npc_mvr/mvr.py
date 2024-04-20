@@ -136,7 +136,7 @@ class MVRDataset:
         }
 
     @npc_io.cached_property
-    def video_data(self) -> npc_io.LazyDict[str, cv2.VideoCapture]:
+    def video_data(self) -> npc_io.LazyDict[CameraName, cv2.VideoCapture]:
         return npc_io.LazyDict(
             (camera_name, (get_video_data, (path,), {}))
             for camera_name, path in self.video_paths.items()

@@ -505,7 +505,7 @@ def remove_lost_frame_times(
 
 def get_video_file_paths(*paths: npc_io.PathLike) -> tuple[upath.UPath, ...]:
     if len(paths) == 1 and npc_io.from_pathlike(paths[0]).is_dir():
-        upaths = tuple(npc_io.from_pathlike(paths[0]).glob("*"))
+        upaths = tuple(npc_io.from_pathlike(paths[0]).iterdir())
     else:
         upaths = tuple(npc_io.from_pathlike(p) for p in paths)
     return tuple(

@@ -526,6 +526,20 @@ def get_total_frames_in_video(
 
     return int(num_frames)
 
+def get_lick_frames_from_behavior_info(
+    info_path_or_data: MVRInfoData | npc_io.PathLike,
+):
+    if (camera_input := get_video_info_data(info_path_or_data).get("CameraInput", ["1,0"])) == ["1,0"]:
+        raise ValueError("Lick frames not recorded in MVR in this session")
+    def parse_camera_input(camera_input: str) -> tuple[int, ...]:
+        """
+        >>> camera_input = ["1,0,105847,1,105849,0,105936,1,105940,0,105945,1,105952,0,105962,1,105966,1,398682,0"]
+        >>> parse_camera_input(camera_input)
+        (105847, 105849, 105936, 105940, 105945, 105952, 105962, 105966, 398682)
+        """
+        camera_input: str = camera_input[0]
+        return tuple(int(x.strip()) for x in re.findall(r"(\d+)(?=,1,)", camera_input))
+    return parse_camera_input(camera_input)
 
 if __name__ == "__main__":
     from npc_mvr import testmod

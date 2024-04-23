@@ -5,6 +5,7 @@ import functools
 import json
 import logging
 from collections.abc import Container, Iterable, Mapping
+import re
 from typing import Any, Literal, TypeVar
 
 import cv2
@@ -241,15 +242,13 @@ class MVRDataset:
             num_lost_frames = last_frame_barcode_value - actual_last_frame_index
             cam_to_frames[camera_name] = int(num_lost_frames)
         return cam_to_frames
+    
 
     @npc_io.cached_property
     def lick_frames(self) -> npt.NDArray[np.intp]:
         if self.sync_path:
             lick_times = self.sync_data.get_rising_edges("lick_sensor", units="seconds")
-            return np.array([
-                np.nanargmin(np.abs(self.frame_times["behavior"] - time))
-                for time in lick_times
-            ])
+            return np.array([get_closest_index(self.frame_times['behavior'], lick_time) for lick_time in lick_times])
         else:
             try:    
                 return get_lick_frames_from_behavior_info(self.info_data['behavior'])
@@ -322,6 +321,7 @@ def is_acceptable_expected_minus_actual_frame_count(
 
 
 def get_camera_name(path: str) -> CameraName:
+    """Camera name according to MVR (`behavior`, `eye`, `face`)."""
     names: dict[str, CameraName] = {
         "eye": "eye",
         "face": "face",
@@ -464,8 +464,6 @@ def get_video_frame_times(
             )
             # Insert a nan frame time at the beginning to account for metadata frame
             camera_frame_times = np.insert(camera_frame_times, 0, np.nan)
-            # append nan frametimes for frames in the video file but are
-            # unnaccounted for on sync:
             if (
                 apply_correction
                 and (
@@ -474,12 +472,16 @@ def get_video_frame_times(
                 )
                 > 0
             ):
+                # append nan frametimes for frames that are in the video file but
+                # are unnaccounted for on sync (sync stopped before all frames
+                # finished transferring):
                 camera_frame_times = np.append(
                     camera_frame_times,
                     np.full(frames_missing_from_sync, np.nan),
                 )
-            # cut times of sync events that don't correspond to frames in the video:
             elif apply_correction and (len(camera_frame_times) > num_frames_in_video):
+                # cut frame times at the end of the sync file that don't
+                # correspond to actual frames in the video file:
                 camera_frame_times = camera_frame_times[:num_frames_in_video]
             if apply_correction:
                 assert len(camera_frame_times) == num_frames_in_video, (
@@ -497,7 +499,7 @@ def get_cam_line_times_on_sync(
     edge_type: Literal["rising", "falling"] = "rising",
 ) -> dict[Literal["behavior", "eye", "face"], npt.NDArray[np.float64]]:
     sync_data = npc_sync.get_sync_data(sync_path_or_dataset)
-
+        
     edge_getter = (
         sync_data.get_rising_edges
         if edge_type == "rising"

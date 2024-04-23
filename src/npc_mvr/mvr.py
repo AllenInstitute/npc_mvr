@@ -23,6 +23,7 @@ MVRInfoData: TypeAlias = Mapping[str, Any]
 recording."""
 
 CameraName: TypeAlias = Literal["eye", "face", "behavior"]
+CameraNameOnSync: TypeAlias = Literal["eye", "face", "beh"]
 
 
 class MVRDataset:
@@ -331,6 +332,10 @@ def get_camera_name(path: str) -> CameraName:
     except StopIteration as exc:
         raise ValueError(f"Could not extract camera name from {path}") from exc
 
+def get_camera_name_on_sync(sync_line: str) -> CameraNameOnSync:
+    """Camera name as used in sync line labels (`beh`, `eye`, `face`)."""
+    name = get_camera_name(sync_line)
+    return 'beh' if name == 'behavior' else name
 
 def get_video_frame_times(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,

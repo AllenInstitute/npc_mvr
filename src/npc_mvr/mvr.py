@@ -4,18 +4,18 @@ import datetime
 import functools
 import json
 import logging
-from collections.abc import Container, Iterable, Mapping
 import re
+from collections.abc import Container, Iterable, Mapping
 from typing import Any, Literal, TypeVar
 
 import cv2
-from matplotlib import pyplot as plt
 import matplotlib.figure
 import npc_io
 import npc_sync
 import numpy as np
 import numpy.typing as npt
 import upath
+from matplotlib import pyplot as plt
 from typing_extensions import TypeAlias
 
 logger = logging.getLogger(__name__)
@@ -210,9 +210,7 @@ class MVRDataset:
             camera_info["expected_minus_actual"] = (
                 num_expected_from_sync - num_frames_in_video
             )
-            camera_info["num_frames_from_sync"] = len(
-                self.frame_times[camera_name]
-            )
+            camera_info["num_frames_from_sync"] = len(self.frame_times[camera_name])
             camera_info["signature_exposure_duration"] = np.round(
                 np.median(signature_exposures), 3
             )
@@ -234,62 +232,75 @@ class MVRDataset:
             actual_last_frame_index = int(video_data.get(cv2.CAP_PROP_FRAME_COUNT) - 1)
             # get the last frame id from the video file
             try:
-                last_frame_barcode_value: int = get_frame_number_from_barcode(video_data, video_info, frame_number=actual_last_frame_index)
+                last_frame_barcode_value: int = get_frame_number_from_barcode(
+                    video_data, video_info, frame_number=actual_last_frame_index
+                )
             except ValueError as exc:
-                raise AttributeError(f"Video file {self.video_paths[camera_name]} does not have barcodes in frames") from exc
+                raise AttributeError(
+                    f"Video file {self.video_paths[camera_name]} does not have barcodes in frames"
+                ) from exc
             num_lost_frames = last_frame_barcode_value - actual_last_frame_index
             cam_to_frames[camera_name] = int(num_lost_frames)
         return cam_to_frames
-    
 
     @npc_io.cached_property
     def lick_frames(self) -> npt.NDArray[np.intp]:
         if self.sync_path:
             lick_times = self.sync_data.get_rising_edges("lick_sensor", units="seconds")
-            return np.array([get_closest_index(self.frame_times['behavior'], lick_time) for lick_time in lick_times])
+            return np.array(
+                [
+                    get_closest_index(self.frame_times["behavior"], lick_time)
+                    for lick_time in lick_times
+                ]
+            )
         else:
-            try:    
-                return np.array(get_lick_frames_from_behavior_info(self.info_data['behavior']))
+            try:
+                return np.array(
+                    get_lick_frames_from_behavior_info(self.info_data["behavior"])
+                )
             except ValueError as exc:
-                raise AttributeError("Lick frames not recorded in MVR in this session") from exc
-        
+                raise AttributeError(
+                    "Lick frames not recorded in MVR in this session"
+                ) from exc
+
     def plot_synced_frames(self, time: float | None = None) -> matplotlib.figure.Figure:
         check_barcode_matches_frame_number = False
         if time is None:
             if hasattr(self, "lick_frames"):
                 time = np.random.choice(self.lick_frames)
             else:
-                time = np.random.randint(0, max(len(times) for times in self.frame_times.values()))
+                time = np.random.randint(
+                    0, max(len(times) for times in self.frame_times.values())
+                )
         fig = plt.figure(figsize=(12, 6))
         ax_idx = 0
-        for camera_name in ('face', 'behavior'):
-            frame_times = self.frame_times[camera_name] # type: ignore[index]
+        for camera_name in ("face", "behavior"):
+            frame_times = self.frame_times[camera_name]  # type: ignore[index]
             ax_idx += 1
             closest_frame = get_closest_index(frame_times, time)
             v = self.video_data[camera_name]
             v.set(cv2.CAP_PROP_POS_FRAMES, 0)
             v.set(cv2.CAP_PROP_POS_FRAMES, float(closest_frame))
-            
-            
+
             if check_barcode_matches_frame_number:
                 # because this method of getting the frame via cv2 is known to be
                 # unreliable (wrong fame fetched) with variable frame rate videos,
                 # verify from the barcode that the frame is correct:
-                frame_barcode: int = get_frame_number_from_barcode(v, self.info_data[camera_name], closest_frame) # type: ignore[index]
+                frame_barcode: int = get_frame_number_from_barcode(v, self.info_data[camera_name], closest_frame)  # type: ignore[index]
                 if frame_barcode != closest_frame:
-                    raise LookupError(f"Frame number from barcode {frame_barcode} does not match expected requested frame number {closest_frame} for {camera_name}")
+                    raise LookupError(
+                        f"Frame number from barcode {frame_barcode} does not match expected requested frame number {closest_frame} for {camera_name}"
+                    )
             plt.subplot(1, 2, ax_idx)
             frame = v.read()[1]
-            if camera_name == 'behavior':
-                frame = frame[:frame.shape[0] // 2, :frame.shape[1] // 2, :]
+            if camera_name == "behavior":
+                frame = frame[: frame.shape[0] // 2, : frame.shape[1] // 2, :]
             plt.imshow(frame)
             plt.axis("off")
-            plt.title(
-                f"{camera_name} @ {time:.2f} s experiment time"
-            )
+            plt.title(f"{camera_name} @ {time:.2f} s experiment time")
 
         return fig
-    
+
     def validate(self) -> None:
         """Check all data required for processing is present and consistent. Check dropped frames
         count."""
@@ -313,8 +324,12 @@ class MVRDataset:
                     f"Video start time is before sync start time for {camera}"
                 )
             if hasattr(self, "num_lost_frames_from_barcodes"):
-                num_frames_lost_in_json = len(get_lost_frames_from_camera_info(info_json))
-                if num_frames_lost_in_json != (b := self.num_lost_frames_from_barcodes[camera]):
+                num_frames_lost_in_json = len(
+                    get_lost_frames_from_camera_info(info_json)
+                )
+                if num_frames_lost_in_json != (
+                    b := self.num_lost_frames_from_barcodes[camera]
+                ):
                     raise AssertionError(
                         f"Lost frame count from frame barcodes ({b}) does not match `FramesLostCount` in info.json ({num_frames_lost_in_json}) for {camera=}"
                     )
@@ -367,10 +382,12 @@ def get_camera_name(path: str) -> CameraName:
     except StopIteration as exc:
         raise ValueError(f"Could not extract camera name from {path}") from exc
 
+
 def get_camera_name_on_sync(sync_line: str) -> CameraNameOnSync:
     """Camera name as used in sync line labels (`beh`, `eye`, `face`)."""
     name = get_camera_name(sync_line)
-    return 'beh' if name == 'behavior' else name
+    return "beh" if name == "behavior" else name
+
 
 def get_camera_sync_line_name_mapping(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
@@ -379,27 +396,30 @@ def get_camera_sync_line_name_mapping(
     """Detects if cameras are plugged into sync correctly and returns a mapping
     of camera names to the camera name on sync that actually corresponds, so that this function can
     be used to wrap any access of line data.
-    
+
     >>> m = MVRDataset('s3://aind-private-data-prod-o5171v/ecephys_703333_2024-04-09_13-06-44')
     >>> get_camera_sync_line_name_mapping(m.sync_path, *m.video_paths.values())
     {'behavior': 'beh', 'face': 'eye', 'eye': 'face'}
     """
-    if len(video_paths) == 1: 
+    if len(video_paths) == 1:
         raise ValueError("Need to pass all video paths to get camera sync line mapping")
     sync_data = npc_sync.get_sync_data(sync_path_or_dataset)
     jsons = get_video_info_file_paths(*video_paths)
     camera_to_json_data = {
         get_camera_name(path.stem): get_video_info_data(path) for path in jsons
     }
-    camera_names_on_sync = ('beh', 'face', 'eye')
+    camera_names_on_sync = ("beh", "face", "eye")
+
     def get_exposure_fingerprint_durations_from_jsons() -> dict[str, int]:
         """Nominally expected exposure time in milliseconds for each camera, as
         recorded in info jsons."""
         return {
-            f"{camera_name}_cam_exposing": camera_to_json_data[get_camera_name(camera_name)]['CustomInitialExposureTime']
+            f"{camera_name}_cam_exposing": camera_to_json_data[
+                get_camera_name(camera_name)
+            ]["CustomInitialExposureTime"]
             for camera_name in camera_names_on_sync
         }
-        
+
     def get_exposure_fingerprint_durations_from_sync() -> dict[str, int]:
         """Initial fingerpring exposure time in milliseconds for each camera, as recorded on sync clock."""
         return {
@@ -407,36 +427,49 @@ def get_camera_sync_line_name_mapping(
                 (
                     sync_data.get_falling_edges(n, units="seconds")[:8]
                     - sync_data.get_rising_edges(n, units="seconds")[:8]
-                ).mean()*1000
+                ).mean()
+                * 1000
             )
             for camera_name in camera_names_on_sync
         }
 
     def get_start_times_on_sync() -> dict[str, float]:
         return {
-            f"{camera_name}{line_suffix}": sync_data.get_rising_edges(f"{camera_name}{line_suffix}", units="seconds")[0]
+            f"{camera_name}{line_suffix}": sync_data.get_rising_edges(
+                f"{camera_name}{line_suffix}", units="seconds"
+            )[0]
             for camera_name in camera_names_on_sync
-            for line_suffix in ('_cam_exposing', '_cam_frame_readout')
+            for line_suffix in ("_cam_exposing", "_cam_frame_readout")
         }
+
     start_times_on_sync = get_start_times_on_sync()
-    lines_sorted_by_start_time: tuple[float, ...] = tuple(sorted(start_times_on_sync, key=start_times_on_sync.get)) # type: ignore
-    expected_exposure_fingerprint_durations = get_exposure_fingerprint_durations_from_jsons()
-    actual_exposure_fingerprint_durations = get_exposure_fingerprint_durations_from_sync()
+    lines_sorted_by_start_time: tuple[float, ...] = tuple(sorted(start_times_on_sync, key=start_times_on_sync.get))  # type: ignore
+    expected_exposure_fingerprint_durations = (
+        get_exposure_fingerprint_durations_from_jsons()
+    )
+    actual_exposure_fingerprint_durations = (
+        get_exposure_fingerprint_durations_from_sync()
+    )
     expected_to_actual_line_mapping: dict[CameraName, CameraNameOnSync] = {}
     for sync_camera_name in camera_names_on_sync:
         exposing_line = f"{sync_camera_name}_cam_exposing"
         expected_duration = expected_exposure_fingerprint_durations[exposing_line]
         actual_line = min(
             actual_exposure_fingerprint_durations,
-            key=lambda line: abs(expected_duration - actual_exposure_fingerprint_durations[line])
+            key=lambda line: abs(
+                expected_duration - actual_exposure_fingerprint_durations[line]
+            ),
         )
-        expected_to_actual_line_mapping[get_camera_name(sync_camera_name)] = get_camera_name_on_sync(actual_line)
+        expected_to_actual_line_mapping[get_camera_name(sync_camera_name)] = (
+            get_camera_name_on_sync(actual_line)
+        )
         readout_line = f"{sync_camera_name}_cam_frame_readout"
-        assert (a := lines_sorted_by_start_time.index(exposing_line)) + 1 == (b := lines_sorted_by_start_time.index(readout_line)), (
-            f"Expected {readout_line} (start index {a}) to start immediately after {exposing_line} (start index {b}) - assumption is incorrect (are lines connected to sync separately?)"
-        )
+        assert (a := lines_sorted_by_start_time.index(exposing_line)) + 1 == (
+            b := lines_sorted_by_start_time.index(readout_line)
+        ), f"Expected {readout_line} (start index {a}) to start immediately after {exposing_line} (start index {b}) - assumption is incorrect (are lines connected to sync separately?)"
     return expected_to_actual_line_mapping
-        
+
+
 def get_video_frame_times(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
     *video_paths: npc_io.PathLike,
@@ -480,9 +513,13 @@ def get_video_frame_times(
     camera_to_json_data = {
         get_camera_name(path.stem): get_video_info_data(path) for path in jsons
     }
-    correct_sync_line_names = get_camera_sync_line_name_mapping(sync_path_or_dataset, *videos)
+    correct_sync_line_names = get_camera_sync_line_name_mapping(
+        sync_path_or_dataset, *videos
+    )
     if tuple(correct_sync_line_names.keys()) != tuple(correct_sync_line_names.values()):
-        logger.warning(f"Camera lines are plugged into sync incorrectly - we'll accommodate for this, but if this is a recent session check the rig: {correct_sync_line_names}")
+        logger.warning(
+            f"Camera lines are plugged into sync incorrectly - we'll accommodate for this, but if this is a recent session check the rig: {correct_sync_line_names}"
+        )
     camera_exposing_times = get_cam_exposing_times_on_sync(sync_path_or_dataset)
     camera_exposing_times = {
         camera: camera_exposing_times[get_camera_name(correct_sync_line_names[camera])]
@@ -535,7 +572,7 @@ def get_cam_line_times_on_sync(
     edge_type: Literal["rising", "falling"] = "rising",
 ) -> dict[Literal["behavior", "eye", "face"], npt.NDArray[np.float64]]:
     sync_data = npc_sync.get_sync_data(sync_path_or_dataset)
-        
+
     edge_getter = (
         sync_data.get_rising_edges
         if edge_type == "rising"
@@ -668,24 +705,28 @@ def get_video_data(
         path = npc_io.get_presigned_url(video_path)
     return cv2.VideoCapture(path)
 
+
 def get_barcode_image(
-    frame: npt.NDArray[np.uint8], 
+    frame: npt.NDArray[np.uint8],
     coordinates: dict[Literal["xOffset", "yOffset", "width", "height"], int],
 ) -> npt.NDArray[np.uint8]:
     """
-    Image box contains a series of grey vertical divider lines (1 per exponent; 1-pix wide): 
+    Image box contains a series of grey vertical divider lines (1 per exponent; 1-pix wide):
     the binary value for each exponent is the value to the right of the grey
     line - either black (0) or white (1)
     """
     return frame[
         coordinates["yOffset"] + 1 : coordinates["yOffset"] + coordinates["height"],
-        coordinates["xOffset"] : coordinates["xOffset"] + coordinates["width"] + 3, # specification in json seems to be incorrect (perhaps does not include border pixels)
+        coordinates["xOffset"] : coordinates["xOffset"]
+        + coordinates["width"]
+        + 3,  # specification in json seems to be incorrect (perhaps does not include border pixels)
     ]
+
 
 def get_barcode_value(
     barcode_image: npt.NDArray[np.uint8],
-): 
-    border = 1 # either side of each "value"
+):
+    border = 1  # either side of each "value"
     value_size = 4
     num_values_per_group = 4
     group_size = num_values_per_group * (value_size + border * 2)
@@ -696,13 +737,15 @@ def get_barcode_value(
     for group_idx in range(num_groups):
         group_start = group_idx * (group_size + group_separator)
         group_end = group_start + group_size
-        group_image = barcode_image[:, group_start: group_end]
+        group_image = barcode_image[:, group_start:group_end]
         for value_idx in range(num_values_per_group):
             value_start = (value_size + border) * value_idx + (value_idx + 1) * border
             value_end = value_start + value_size
-            value_image = group_image[:, value_start : value_end]
+            value_image = group_image[:, value_start:value_end]
             mean_value = np.mean(value_image)
-            norm_mean = np.round((mean_value / 255) * 2 - 1) # [black, grey, white] -> [-1, 0, 1]
+            norm_mean = np.round(
+                (mean_value / 255) * 2 - 1
+            )  # [black, grey, white] -> [-1, 0, 1]
             values.append(norm_mean)
     exponent_values = tuple(values[::-1])
     """
@@ -720,10 +763,17 @@ def get_barcode_value(
     value = 0
     for exponent, exponent_value in enumerate(exponent_values):
         if exponent_value == 1:
-            value += 2 ** exponent
+            value += 2**exponent
     return value
 
-def get_barcode_value_from_frame(video_data: cv2.VideoCapture, frame_number: int, barcode_image_coordinates: dict[Literal["xOffset", "yOffset", "width", "height"], int]) -> int:
+
+def get_barcode_value_from_frame(
+    video_data: cv2.VideoCapture,
+    frame_number: int,
+    barcode_image_coordinates: dict[
+        Literal["xOffset", "yOffset", "width", "height"], int
+    ],
+) -> int:
     """
     value is the binary value extracted from the barcode in the corner of the
     image
@@ -731,18 +781,32 @@ def get_barcode_value_from_frame(video_data: cv2.VideoCapture, frame_number: int
     - the first proper barcode starts with a value of 1
     """
     video_data.set(cv2.CAP_PROP_POS_FRAMES, int(frame_number))
-    frame: npt.NDArray[np.uint8] = video_data.read()[1] # type: ignore
-        
-    barcode_image = get_barcode_image(frame, coordinates=barcode_image_coordinates)[:, :, 0]
+    frame: npt.NDArray[np.uint8] = video_data.read()[1]  # type: ignore
+
+    barcode_image = get_barcode_image(frame, coordinates=barcode_image_coordinates)[
+        :, :, 0
+    ]
     value = get_barcode_value(barcode_image)
     if value == 0:
         assert frame_number == 0
     return value
 
-def get_barcode_image_coordinates(video_info: MVRInfoData) -> dict[Literal["xOffset", "yOffset", "width", "height"], int]:
-    default_coordinates = {"xOffset":"0","yOffset":"0","width":"129","height":"3"}
-    coordinates: dict[Literal["xOffset", "yOffset", "width", "height"], int] = {k: int(v) for k, v in video_info.get("BarcodeCoordinates", default_coordinates).items()}
+
+def get_barcode_image_coordinates(
+    video_info: MVRInfoData,
+) -> dict[Literal["xOffset", "yOffset", "width", "height"], int]:
+    default_coordinates = {
+        "xOffset": "0",
+        "yOffset": "0",
+        "width": "129",
+        "height": "3",
+    }
+    coordinates: dict[Literal["xOffset", "yOffset", "width", "height"], int] = {
+        k: int(v)
+        for k, v in video_info.get("BarcodeCoordinates", default_coordinates).items()
+    }
     return coordinates
+
 
 def get_frame_number_from_barcode(
     video_or_video_path: cv2.VideoCapture | npc_io.PathLike,
@@ -751,9 +815,9 @@ def get_frame_number_from_barcode(
 ) -> int:
     """
     Extract barcode from encoded ID in image frame.
-    
+
     - barcodes start at 1: presumably to account for metadata frame at 0
-    
+
     >>> path = 's3://aind-private-data-prod-o5171v/ecephys_703333_2024-04-09_13-06-44'
     >>> m = MVRDataset(path)
     >>> video_data = m.video_data['behavior']
@@ -771,6 +835,7 @@ def get_frame_number_from_barcode(
     coordinates = get_barcode_image_coordinates(video_info)
     return get_barcode_value_from_frame(video_data, frame_number, coordinates)
 
+
 @functools.cache
 def get_total_frames_in_video(
     video_path: npc_io.PathLike,
@@ -780,8 +845,10 @@ def get_total_frames_in_video(
 
     return int(num_frames)
 
+
 def get_closest_index(arr: npt.ArrayLike, value: int | float) -> int:
-    return int(np.nanargmin(np.abs(arr - value))) # type: ignore
+    return int(np.nanargmin(np.abs(arr - value)))  # type: ignore
+
 
 def get_lick_frames_from_behavior_info(
     info_path_or_data: MVRInfoData | npc_io.PathLike,
@@ -793,18 +860,25 @@ def get_lick_frames_from_behavior_info(
         (105847, 105849, 105936, 105940, 105945, 105952, 105962, 105966, 398682)
         """
         return tuple(int(x.strip()) for x in re.findall(r"(\d+)(?=,1,)", camera_input))
-    if (camera_input := get_video_info_data(info_path_or_data).get("CameraInput", ["1,0"])[0]) == "1,0":
+
+    if (
+        camera_input := get_video_info_data(info_path_or_data).get(
+            "CameraInput", ["1,0"]
+        )[0]
+    ) == "1,0":
         raise ValueError("Lick frames not recorded in MVR in this session")
     return parse_camera_input(camera_input)
 
+
 def get_frame(video_data: cv2.VideoCapture, frame_number: int) -> npt.NDArray[np.uint8]:
     video_data.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-    return video_data.read()[1] # type: ignore
-    
+    return video_data.read()[1]  # type: ignore
+
+
 if __name__ == "__main__":
-    d = MVRDataset('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15')
+    d = MVRDataset("s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15")
     d.validate()
-    
+
     from npc_mvr import testmod
 
     testmod()

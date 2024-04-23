@@ -9,6 +9,7 @@ import re
 from typing import Any, Literal, TypeVar
 
 import cv2
+from matplotlib import pyplot as plt
 import npc_io
 import npc_sync
 import numpy as np
@@ -255,6 +256,43 @@ class MVRDataset:
             except ValueError as exc:
                 raise AttributeError("Lick frames not recorded in MVR in this session") from exc
         
+    def plot_synced_frames(self, time: float | None = None) -> plt.Figure:
+        check_barcode_matches_frame_number = False
+        if time is None:
+            if hasattr(self, "lick_frames"):
+                time = np.random.choice(self.lick_frames)
+            else:
+                time = np.random.randint(0, max(len(times) for times in self.frame_times.values()))
+        fig = plt.figure(figsize=(12, 6))
+        ax_idx = 0
+        for camera_name in ('face', 'behavior'):
+            frame_times = self.frame_times[camera_name] # type: ignore
+            ax_idx += 1
+            closest_frame = get_closest_index(frame_times, time)
+            v = self.video_data[camera_name]
+            v.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            v.set(cv2.CAP_PROP_POS_FRAMES, float(closest_frame))
+            
+            
+            if check_barcode_matches_frame_number:
+                # because this method of getting the frame via cv2 is known to be
+                # unreliable (wrong fame fetched) with variable frame rate videos,
+                # verify from the barcode that the frame is correct:
+                frame_barcode = get_frame_number_from_barcode(v, self.info_data[camera_name], closest_frame)
+                if frame_barcode != closest_frame:
+                    raise LookupError(f"Frame number from barcode {frame_barcode} does not match expected requested frame number {closest_frame} for {camera_name}")
+            plt.subplot(1, 2, ax_idx)
+            frame = v.read()[1]
+            if camera_name == 'behavior':
+                frame = frame[:frame.shape[0] // 2, :frame.shape[1] // 2, :]
+            plt.imshow(frame)
+            plt.axis("off")
+            plt.title(
+                f"{camera_name} @ {time:.2f} s experiment time"
+            )
+
+        return fig
+    
     def validate(self) -> None:
         """Check all data required for processing is present and consistent. Check dropped frames
         count."""

@@ -235,7 +235,7 @@ class MVRDataset:
             actual_last_frame_index = int(video_data.get(cv2.CAP_PROP_FRAME_COUNT) - 1)
             # get the last frame id from the video file
             try:
-                last_frame_barcode_value: int = get_frame_numbers_from_barcodes(video_data, video_info, frame_numbers=actual_last_frame_index)[0]
+                last_frame_barcode_value: int = get_frame_number_from_barcode(video_data, video_info, frame_number=actual_last_frame_index)
             except ValueError as exc:
                 raise AttributeError(f"Video file {self.video_paths[camera_name]} does not have barcodes in frames") from exc
             num_lost_frames = last_frame_barcode_value - actual_last_frame_index
@@ -623,11 +623,87 @@ def get_video_data(
         path = npc_io.get_presigned_url(video_path)
     return cv2.VideoCapture(path)
 
-def get_frame_numbers_from_barcodes(
+def get_barcode_image(
+    frame: npt.NDArray[np.uint8], 
+    coordinates: dict[Literal["xOffset", "yOffset", "width", "height"], int],
+) -> npt.NDArray[np.uint8]:
+    """
+    Image box contains a series of grey vertical divider lines (1 per exponent; 1-pix wide): 
+    the binary value for each exponent is the value to the right of the grey
+    line - either black (0) or white (1)
+    """
+    return frame[
+        coordinates["yOffset"] + 1 : coordinates["yOffset"] + coordinates["height"],
+        coordinates["xOffset"] : coordinates["xOffset"] + coordinates["width"] + 3, # specification in json seems to be incorrect (perhaps does not include border pixels)
+    ]
+
+def get_barcode_value(
+    barcode_image: npt.NDArray[np.uint8],
+): 
+    border = 1 # either side of each "value"
+    value_size = 4
+    num_values_per_group = 4
+    group_size = num_values_per_group * (value_size + border * 2)
+    group_separator = 3
+    num_groups = 5
+    # express values in barcode image as [black, grey, white] -> [-1, 0, 1]:
+    values = []
+    for group_idx in range(num_groups):
+        group_start = group_idx * (group_size + group_separator)
+        group_end = group_start + group_size
+        group_image = barcode_image[:, group_start: group_end]
+        for value_idx in range(num_values_per_group):
+            value_start = (value_size + border) * value_idx + (value_idx + 1) * border
+            value_end = value_start + value_size
+            value_image = group_image[:, value_start : value_end]
+            mean_value = np.mean(value_image)
+            norm_mean = np.round((mean_value / 255) * 2 - 1) # [black, grey, white] -> [-1, 0, 1]
+            values.append(norm_mean)
+    exponent_values = tuple(values[::-1])
+    """
+    plt.subplot(4,1,1)
+    plt.imshow(get_barcode_image(frame))
+    plt.subplot(4,1,2)
+    plt.imshow([get_barcode_image(frame)[0, :, 0] / 255 * 2 - 1])
+    plt.subplot(4,1,4)
+    plt.imshow(frame[0:10, 0:150, :])
+    plt.title(str(values))
+    """
+    if all(x == 1 for x in exponent_values) and round(np.mean(barcode_image)) > 250:
+        # whole barcode area in frame is white: likely metadata frame
+        return 0
+    value = 0
+    for exponent, exponent_value in enumerate(exponent_values):
+        if exponent_value == 1:
+            value += 2 ** exponent
+    return value
+
+def get_barcode_value_from_frame(video_data: cv2.VideoCapture, frame_number: int, barcode_image_coordinates: dict[str, int]) -> int:
+    """
+    value is the binary value extracted from the barcode in the corner of the
+    image
+    - there's no barcode on the metadata frame (frame 0)
+    - the first proper barcode starts with a value of 1
+    """
+    video_data.set(cv2.CAP_PROP_POS_FRAMES, int(frame_number))
+    frame: npt.NDArray[np.uint8] = video_data.read()[1] # type: ignore
+        
+    barcode_image = get_barcode_image(frame, coordinates=barcode_image_coordinates)[:, :, 0]
+    value = get_barcode_value(barcode_image)
+    if value == 0:
+        assert frame_number == 0
+    return value
+
+def get_barcode_image_coordinates(video_info: MVRInfoData) -> dict[str, int]:
+    default_coordinates = {"xOffset":"0","yOffset":"0","width":"129","height":"3"}
+    coordinates: dict[str | Any, int] = {k: int(v) for k, v in video_info.get("BarcodeCoordinates", default_coordinates).items()}
+    return coordinates
+
+def get_frame_number_from_barcode(
     video_or_video_path: cv2.VideoCapture | npc_io.PathLike,
     info_path_or_data: MVRInfoData | npc_io.PathLike,
-    frame_numbers: int | Iterable[int] | None = None,
-) -> tuple[int, ...]:
+    frame_number: int,
+) -> int:
     """
     Extract barcode from encoded ID in image frame.
     
@@ -637,87 +713,18 @@ def get_frame_numbers_from_barcodes(
     >>> m = MVRDataset(path)
     >>> video_data = m.video_data['behavior']
     >>> video_info = m.info_data['behavior']
-    >>> frame_numbers = 0
-    >>> get_frame_numbers_from_barcodes(video_data, frame_numbers=0, video_info=video_info) # metadata frame
+    >>> frame_number = 0
+    >>> get_frame_number_from_barcodes(video_data, frame_number=0, video_info=video_info) # metadata frame
     0
-    >>> get_frame_numbers_from_barcodes(video_data, frame_numbers=1, video_info=video_info)
+    >>> get_frame_number_from_barcodes(video_data, frame_number=1, video_info=video_info)
     1
     """
     video_info = get_video_info_data(info_path_or_data)
     if not video_info.get("FrameID imprint enabled", False) == "true":
         raise ValueError("FrameID imprint not enabled in video")
     video_data = get_video_data(video_or_video_path)
-    if frame_numbers is None:
-        frame_numbers = range(int(video_data.get(cv2.CAP_PROP_FRAME_COUNT) - 1))
-    if not isinstance(frame_numbers, Iterable):
-        frame_numbers = (frame_numbers,)
-    default_coordinates = {"xOffset":"0","yOffset":"0","width":"129","height":"3"}
-    coordinates: dict[str | Any, int] = {k: int(v) for k, v in video_info.get("BarcodeCoordinates", default_coordinates).items()}
-
-    def get_barcode_value(video_data: cv2.VideoCapture, frame_number: int) -> int:
-        """
-        value is the binary value extracted from the barcode in the corner of the
-        image
-        - there's no barcode on the metadata frame (frame 0)
-        - the first proper barcode starts with a value of 1
-        """
-        video_data.set(cv2.CAP_PROP_POS_FRAMES, int(frame_number))
-        frame: npt.NDArray[np.uint8] = video_data.read()[1] # type: ignore
-        def get_barcode_image(frame: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-            """
-            Image box contains a series of grey vertical divider lines (1 per exponent; 1-pix wide): 
-            the binary value for each exponent is the value to the right of the grey
-            line - either black (0) or white (1)
-            """
-            return frame[
-                coordinates["yOffset"] + 1 : coordinates["yOffset"] + coordinates["height"],
-                coordinates["xOffset"] : coordinates["xOffset"] + coordinates["width"] + 3, # specification in json seems to be incorrect (perhaps does not include border pixels)
-            ]
-            
-        barcode_image = get_barcode_image(frame)[:, :, 0]
-        border = 1 # either side of each "value"
-        value_size = 4
-        num_values_per_group = 4
-        group_size = num_values_per_group * (value_size + border * 2)
-        group_separator = 3
-        num_groups = 5
-        # express values in barcode image as [black, grey, white] -> [-1, 0, 1]:
-        values = []
-        for group_idx in range(num_groups):
-            group_start = group_idx * (group_size + group_separator)
-            group_end = group_start + group_size
-            group_image = barcode_image[:, group_start: group_end]
-            for value_idx in range(num_values_per_group):
-                value_start = (value_size + border) * value_idx + (value_idx + 1) * border
-                value_end = value_start + value_size
-                value_image = group_image[:, value_start : value_end]
-                mean_value = np.mean(value_image)
-                norm_mean = np.round((mean_value / 255) * 2 - 1) # [black, grey, white] -> [-1, 0, 1]
-                values.append(norm_mean)
-        exponent_values = tuple(values[::-1])
-        """
-        plt.subplot(4,1,1)
-        plt.imshow(get_barcode_image(frame))
-        plt.subplot(4,1,2)
-        plt.imshow([get_barcode_image(frame)[0, :, 0] / 255 * 2 - 1])
-        plt.subplot(4,1,4)
-        plt.imshow(frame[0:10, 0:150, :])
-        plt.title(str(values))
-        """
-        
-        # first frame is likely to be all white metadata frame:
-        if all(x == 1 for x in exponent_values):
-            assert frame_number == 0, f"All white barcode values in {frame_number=}: likely barcodes were not printed in this video file"
-            return 0
-        value = 0
-        for exponent, exponent_value in enumerate(exponent_values):
-            if exponent_value == 1:
-                value += 2 ** exponent
-        return value
-    frame_values: list[int] = []
-    for frame_number in frame_numbers:
-        frame_values.append(get_barcode_value(video_data, frame_number))
-    return tuple(frame_values)
+    coordinates = get_barcode_image_coordinates(video_info)
+    return get_barcode_value_from_frame(video_data, frame_number, coordinates)
 
 @functools.cache
 def get_total_frames_in_video(

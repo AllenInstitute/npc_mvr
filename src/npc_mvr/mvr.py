@@ -253,7 +253,7 @@ class MVRDataset:
             return np.array([get_closest_index(self.frame_times['behavior'], lick_time) for lick_time in lick_times])
         else:
             try:    
-                return get_lick_frames_from_behavior_info(self.info_data['behavior'])
+                return np.array(get_lick_frames_from_behavior_info(self.info_data['behavior']))
             except ValueError as exc:
                 raise AttributeError("Lick frames not recorded in MVR in this session") from exc
         
@@ -266,9 +266,8 @@ class MVRDataset:
                 time = np.random.randint(0, max(len(times) for times in self.frame_times.values()))
         fig = plt.figure(figsize=(12, 6))
         ax_idx = 0
-        camera_name: CameraName
         for camera_name in ('face', 'behavior'):
-            frame_times = self.frame_times[camera_name]
+            frame_times = self.frame_times[camera_name] # type: ignore[index]
             ax_idx += 1
             closest_frame = get_closest_index(frame_times, time)
             v = self.video_data[camera_name]
@@ -783,22 +782,21 @@ def get_total_frames_in_video(
 
     return int(num_frames)
 
-def get_closest_index(target: npt.ArrayLike, values: int | float) -> int:
-    return int(np.nanargmin(np.abs(target - values)))
+def get_closest_index(arr: npt.ArrayLike, value: int | float) -> int:
+    return int(np.nanargmin(np.abs(arr - value))) # type: ignore
 
 def get_lick_frames_from_behavior_info(
     info_path_or_data: MVRInfoData | npc_io.PathLike,
-):
-    if (camera_input := get_video_info_data(info_path_or_data).get("CameraInput", ["1,0"])) == ["1,0"]:
-        raise ValueError("Lick frames not recorded in MVR in this session")
+) -> tuple[int, ...]:
     def parse_camera_input(camera_input: str) -> tuple[int, ...]:
         """
         >>> camera_input = ["1,0,105847,1,105849,0,105936,1,105940,0,105945,1,105952,0,105962,1,105966,1,398682,0"]
         >>> parse_camera_input(camera_input)
         (105847, 105849, 105936, 105940, 105945, 105952, 105962, 105966, 398682)
         """
-        camera_input: str = camera_input[0]
         return tuple(int(x.strip()) for x in re.findall(r"(\d+)(?=,1,)", camera_input))
+    if (camera_input := get_video_info_data(info_path_or_data).get("CameraInput", ["1,0"])[0]) == "1,0":
+        raise ValueError("Lick frames not recorded in MVR in this session")
     return parse_camera_input(camera_input)
 
 def get_frame(video_data: cv2.VideoCapture, frame_number: int) -> npt.NDArray[np.uint8]:

@@ -735,6 +735,9 @@ def get_total_frames_in_video(
 
     return int(num_frames)
 
+def get_closest_index(target: npt.ArrayLike, values: int) -> int:
+    return int(np.nanargmin(np.abs(target - values)))
+
 def get_lick_frames_from_behavior_info(
     info_path_or_data: MVRInfoData | npc_io.PathLike,
 ):
@@ -750,6 +753,10 @@ def get_lick_frames_from_behavior_info(
         return tuple(int(x.strip()) for x in re.findall(r"(\d+)(?=,1,)", camera_input))
     return parse_camera_input(camera_input)
 
+def get_frame(video_data: cv2.VideoCapture, frame_number: int) -> npt.NDArray[np.uint8]:
+    video_data.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+    return video_data.read()[1] # type: ignore
+    
 if __name__ == "__main__":
     from npc_mvr import testmod
 

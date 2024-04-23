@@ -279,7 +279,7 @@ class MVRDataset:
                 # because this method of getting the frame via cv2 is known to be
                 # unreliable (wrong fame fetched) with variable frame rate videos,
                 # verify from the barcode that the frame is correct:
-                frame_barcode = get_frame_number_from_barcode(v, self.info_data[camera_name], closest_frame)
+                frame_barcode: int = get_frame_number_from_barcode(v, self.info_data[camera_name], closest_frame) # type: ignore[index]
                 if frame_barcode != closest_frame:
                     raise LookupError(f"Frame number from barcode {frame_barcode} does not match expected requested frame number {closest_frame} for {camera_name}")
             plt.subplot(1, 2, ax_idx)

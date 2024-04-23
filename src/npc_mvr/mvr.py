@@ -337,6 +337,70 @@ def get_camera_name_on_sync(sync_line: str) -> CameraNameOnSync:
     name = get_camera_name(sync_line)
     return 'beh' if name == 'behavior' else name
 
+@functools.cache
+def get_camera_sync_line_name_mapping(
+    sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
+    *video_paths: npc_io.PathLike,
+) -> dict[CameraName, CameraNameOnSync]:
+    """Detects if cameras are plugged into sync correctly and returns a mapping
+    of camera names to the camera name on sync that actually corresponds, so that this function can
+    be used to wrap any access of line data.
+    
+    >>> m = MVRDataset('s3://aind-private-data-prod-o5171v/ecephys_703333_2024-04-09_13-06-44')
+    >>> get_camera_sync_line_name_mapping(m.sync_path, *m.video_paths.values())
+    {'behavior': 'beh', 'face': 'eye', 'eye': 'face'}
+    """
+    sync_data = npc_sync.get_sync_data(sync_path_or_dataset)
+    jsons = get_video_info_file_paths(*video_paths)
+    camera_to_json_data = {
+        get_camera_name(path.stem): get_video_info_data(path) for path in jsons
+    }
+    camera_names_on_sync = ('beh', 'face', 'eye')
+    def get_exposure_fingerprint_durations_from_jsons() -> dict[str, int]:
+        """Nominally expected exposure time in milliseconds for each camera, as
+        recorded in info jsons."""
+        return {
+            f"{camera_name}_cam_exposing": camera_to_json_data[get_camera_name(camera_name)]['CustomInitialExposureTime']
+            for camera_name in camera_names_on_sync
+        }
+        
+    def get_exposure_fingerprint_durations_from_sync() -> dict[str, int]:
+        """Initial fingerpring exposure time in milliseconds for each camera, as recorded on sync clock."""
+        return {
+            (n := f"{camera_name}_cam_exposing"): round(
+                (
+                    sync_data.get_falling_edges(n, units="seconds")[:8]
+                    - sync_data.get_rising_edges(n, units="seconds")[:8]
+                ).mean()*1000
+            )
+            for camera_name in camera_names_on_sync
+        }
+
+    def get_start_times_on_sync() -> dict[str, float]:
+        return {
+            f"{camera_name}{line_suffix}": sync_data.get_rising_edges(f"{camera_name}{line_suffix}", units="seconds")[0]
+            for camera_name in camera_names_on_sync
+            for line_suffix in ('_cam_exposing', '_cam_frame_readout')
+        }
+    start_times_on_sync = get_start_times_on_sync()
+    lines_sorted_by_start_time = tuple(sorted(start_times_on_sync, key=start_times_on_sync.get))
+    expected_exposure_fingerprint_durations = get_exposure_fingerprint_durations_from_jsons()
+    actual_exposure_fingerprint_durations = get_exposure_fingerprint_durations_from_sync()
+    expected_to_actual_line_mapping: dict[CameraName, CameraNameOnSync] = {}
+    for sync_camera_name in camera_names_on_sync:
+        exposing_line = f"{sync_camera_name}_cam_exposing"
+        expected_duration = expected_exposure_fingerprint_durations[exposing_line]
+        actual_line = min(
+            actual_exposure_fingerprint_durations,
+            key=lambda line: abs(expected_duration - actual_exposure_fingerprint_durations[line])
+        )
+        expected_to_actual_line_mapping[get_camera_name(sync_camera_name)] = get_camera_name_on_sync(actual_line)
+        readout_line = f"{sync_camera_name}_cam_frame_readout"
+        assert (a := lines_sorted_by_start_time.index(start_times_on_sync[exposing_line])) + 1 == (b := lines_sorted_by_start_time.index(start_times_on_sync[readout_line])), (
+            f"Expected {readout_line} (start index {a}) to start immediately after {exposing_line} (start index {b}) - assumption is incorrect (are lines connected to sync separately?)"
+        )
+    return expected_to_actual_line_mapping
+        
 def get_video_frame_times(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
     *video_paths: npc_io.PathLike,

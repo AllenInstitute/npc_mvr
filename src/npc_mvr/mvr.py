@@ -211,11 +211,7 @@ class MVRDataset:
                 num_expected_from_sync - num_frames_in_video
             )
             camera_info["num_frames_from_sync"] = len(
-                get_video_frame_times(
-                    self.sync_path,
-                    self.video_paths[camera_name],
-                    apply_correction=False,
-                )[self.video_paths[camera_name]]
+                self.frame_times[camera_name]
             )
             camera_info["signature_exposure_duration"] = np.round(
                 np.median(signature_exposures), 3
@@ -761,9 +757,9 @@ def get_frame_number_from_barcode(
     >>> video_data = m.video_data['behavior']
     >>> video_info = m.info_data['behavior']
     >>> frame_number = 0
-    >>> get_frame_number_from_barcodes(video_data, frame_number=0, video_info=video_info) # metadata frame
+    >>> get_frame_number_from_barcode(video_data, info_path_or_data=video_info, frame_number=0) # metadata frame
     0
-    >>> get_frame_number_from_barcodes(video_data, frame_number=1, video_info=video_info)
+    >>> get_frame_number_from_barcode(video_data, info_path_or_data=video_info, frame_number=1)
     1
     """
     video_info = get_video_info_data(info_path_or_data)
@@ -804,6 +800,9 @@ def get_frame(video_data: cv2.VideoCapture, frame_number: int) -> npt.NDArray[np
     return video_data.read()[1] # type: ignore
     
 if __name__ == "__main__":
+    d = MVRDataset('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15')
+    d.validate()
+    
     from npc_mvr import testmod
 
     testmod()

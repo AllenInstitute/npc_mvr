@@ -384,6 +384,8 @@ def get_camera_sync_line_name_mapping(
     >>> get_camera_sync_line_name_mapping(m.sync_path, *m.video_paths.values())
     {'behavior': 'beh', 'face': 'eye', 'eye': 'face'}
     """
+    if len(video_paths) == 1: 
+        raise ValueError("Need to pass all video paths to get camera sync line mapping")
     sync_data = npc_sync.get_sync_data(sync_path_or_dataset)
     jsons = get_video_info_file_paths(*video_paths)
     camera_to_json_data = {

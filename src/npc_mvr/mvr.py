@@ -10,6 +10,7 @@ from typing import Any, Literal, TypeVar
 
 import cv2
 from matplotlib import pyplot as plt
+import matplotlib.figure
 import npc_io
 import npc_sync
 import numpy as np
@@ -256,7 +257,7 @@ class MVRDataset:
             except ValueError as exc:
                 raise AttributeError("Lick frames not recorded in MVR in this session") from exc
         
-    def plot_synced_frames(self, time: float | None = None) -> plt.Figure:
+    def plot_synced_frames(self, time: float | None = None) -> matplotlib.figure.Figure:
         check_barcode_matches_frame_number = False
         if time is None:
             if hasattr(self, "lick_frames"):
@@ -265,8 +266,9 @@ class MVRDataset:
                 time = np.random.randint(0, max(len(times) for times in self.frame_times.values()))
         fig = plt.figure(figsize=(12, 6))
         ax_idx = 0
+        camera_name: CameraName
         for camera_name in ('face', 'behavior'):
-            frame_times = self.frame_times[camera_name] # type: ignore
+            frame_times = self.frame_times[camera_name]
             ax_idx += 1
             closest_frame = get_closest_index(frame_times, time)
             v = self.video_data[camera_name]
@@ -375,7 +377,6 @@ def get_camera_name_on_sync(sync_line: str) -> CameraNameOnSync:
     name = get_camera_name(sync_line)
     return 'beh' if name == 'behavior' else name
 
-@functools.cache
 def get_camera_sync_line_name_mapping(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
     *video_paths: npc_io.PathLike,
@@ -421,7 +422,7 @@ def get_camera_sync_line_name_mapping(
             for line_suffix in ('_cam_exposing', '_cam_frame_readout')
         }
     start_times_on_sync = get_start_times_on_sync()
-    lines_sorted_by_start_time = tuple(sorted(start_times_on_sync, key=start_times_on_sync.get))
+    lines_sorted_by_start_time: tuple[float, ...] = tuple(sorted(start_times_on_sync, key=start_times_on_sync.get)) # type: ignore
     expected_exposure_fingerprint_durations = get_exposure_fingerprint_durations_from_jsons()
     actual_exposure_fingerprint_durations = get_exposure_fingerprint_durations_from_sync()
     expected_to_actual_line_mapping: dict[CameraName, CameraNameOnSync] = {}
@@ -725,7 +726,7 @@ def get_barcode_value(
             value += 2 ** exponent
     return value
 
-def get_barcode_value_from_frame(video_data: cv2.VideoCapture, frame_number: int, barcode_image_coordinates: dict[str, int]) -> int:
+def get_barcode_value_from_frame(video_data: cv2.VideoCapture, frame_number: int, barcode_image_coordinates: dict[Literal["xOffset", "yOffset", "width", "height"], int]) -> int:
     """
     value is the binary value extracted from the barcode in the corner of the
     image
@@ -741,9 +742,9 @@ def get_barcode_value_from_frame(video_data: cv2.VideoCapture, frame_number: int
         assert frame_number == 0
     return value
 
-def get_barcode_image_coordinates(video_info: MVRInfoData) -> dict[str, int]:
+def get_barcode_image_coordinates(video_info: MVRInfoData) -> dict[Literal["xOffset", "yOffset", "width", "height"], int]:
     default_coordinates = {"xOffset":"0","yOffset":"0","width":"129","height":"3"}
-    coordinates: dict[str | Any, int] = {k: int(v) for k, v in video_info.get("BarcodeCoordinates", default_coordinates).items()}
+    coordinates: dict[Literal["xOffset", "yOffset", "width", "height"], int] = {k: int(v) for k, v in video_info.get("BarcodeCoordinates", default_coordinates).items()}
     return coordinates
 
 def get_frame_number_from_barcode(

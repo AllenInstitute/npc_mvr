@@ -782,7 +782,7 @@ def get_total_frames_in_video(
 
     return int(num_frames)
 
-def get_closest_index(target: npt.ArrayLike, values: int) -> int:
+def get_closest_index(target: npt.ArrayLike, values: int | float) -> int:
     return int(np.nanargmin(np.abs(target - values)))
 
 def get_lick_frames_from_behavior_info(

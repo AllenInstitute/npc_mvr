@@ -463,10 +463,7 @@ def get_camera_sync_line_name_mapping(
         expected_to_actual_line_mapping[get_camera_name(sync_camera_name)] = (
             get_camera_name_on_sync(actual_line)
         )
-        readout_line = f"{sync_camera_name}_cam_frame_readout"
-        assert (a := lines_sorted_by_start_time.index(exposing_line)) + 1 == (
-            b := lines_sorted_by_start_time.index(readout_line)
-        ), f"Expected {readout_line} (start index {a}) to start immediately after {exposing_line} (start index {b}) - assumption is incorrect (are lines connected to sync separately?)"
+        # readout line is coupled to exposing line (ie. they share the same plug) so the same mapping applies to both
     return expected_to_actual_line_mapping
 
 

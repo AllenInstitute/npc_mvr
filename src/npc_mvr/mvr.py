@@ -510,16 +510,16 @@ def get_video_frame_times(
     camera_to_json_data = {
         get_camera_name(path.stem): get_video_info_data(path) for path in jsons
     }
-    correct_sync_line_names = get_camera_sync_line_name_mapping(
+    correct_sync_line_name_mapping = get_camera_sync_line_name_mapping(
         sync_path_or_dataset, *videos
     )
-    if tuple(correct_sync_line_names.keys()) != tuple(correct_sync_line_names.values()):
+    if tuple(get_camera_name_on_sync(c) for c in correct_sync_line_name_mapping) != tuple(correct_sync_line_name_mapping.values()):
         logger.warning(
-            f"Camera lines are plugged into sync incorrectly - we'll accommodate for this, but if this is a recent session check the rig: {correct_sync_line_names}"
+            f"Camera lines are plugged into sync incorrectly - we'll accommodate for this, but if this is a recent session check the rig: {correct_sync_line_name_mapping}"
         )
     camera_exposing_times = get_cam_exposing_times_on_sync(sync_path_or_dataset)
     camera_exposing_times = {
-        camera: camera_exposing_times[get_camera_name(correct_sync_line_names[camera])]
+        camera: camera_exposing_times[get_camera_name(correct_sync_line_name_mapping[camera])]
         for camera in camera_exposing_times
     }
     frame_times: dict[upath.UPath, npt.NDArray[np.floating]] = {}

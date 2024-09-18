@@ -529,9 +529,7 @@ def get_video_frame_times(
     for camera, exposing_times in camera_exposing_times.items():
         if camera not in camera_to_video_path:
             continue
-        num_frames_in_video = get_total_frames_in_video(
-            camera_to_video_path[camera]
-        )
+        num_frames_in_video = get_total_frames_in_video(camera_to_video_path[camera])
         # if sync + MVR started long before experiment (ie. pretest that wasn't
         # stopped) sync will have extra exposing times at start that we need to ignore.
         # outlier long exposing intervals help us identify MVR recordings being
@@ -540,25 +538,35 @@ def get_video_frame_times(
         # num_frames_in_video (from the experiment video file)
         intervals = np.diff(exposing_times)
         interval_z = np.abs(intervals - np.median(intervals)) / np.std(intervals)
-        long_interval_idx = np.where(interval_z > 50)[0] 
+        long_interval_idx = np.where(interval_z > 50)[0]
         # breaks between recordings typically 100s or 1000s of seconds, but for
         # 644867_2023-02-23 it's only 0.36 s (zscore > 500)
         if long_interval_idx.any():
             exposing_time_blocks = np.split(exposing_times, long_interval_idx + 1)
-            logger.warning(f"Long exposure times detected for {camera_to_video_path[camera].as_posix()}, suggesting multiple videos captured on sync: {len(exposing_time_blocks)=}")
-            assert np.all(np.diff([e[0] for e in exposing_time_blocks]) > 4 * np.median(intervals)), f"Exposing times not split correctly for {camera}"
+            logger.warning(
+                f"Long exposure times detected for {camera_to_video_path[camera].as_posix()}, suggesting multiple videos captured on sync: {len(exposing_time_blocks)=}"
+            )
+            assert np.all(
+                np.diff([e[0] for e in exposing_time_blocks]) > 4 * np.median(intervals)
+            ), f"Exposing times not split correctly for {camera}"
             exposing_times = min(
                 exposing_time_blocks,
                 key=lambda block: abs(len(block) - num_frames_in_video),
             )
         # check that exposing time in results is close to video start time in metadata:
-        json_start_time = datetime.datetime.fromisoformat(camera_to_json_data[camera]["TimeStart"].strip("Z"))
+        json_start_time = datetime.datetime.fromisoformat(
+            camera_to_json_data[camera]["TimeStart"].strip("Z")
+        )
         sync_start_time = npc_sync.get_sync_data(sync_path_or_dataset).start_time
-        assert sync_start_time < json_start_time, f"Video start time from json info {json_start_time} is before sync start time {sync_start_time} for {camera}: cannot align frames if first exposure not captured on sync"
+        assert (
+            sync_start_time < json_start_time
+        ), f"Video start time from json info {json_start_time} is before sync start time {sync_start_time} for {camera}: cannot align frames if first exposure not captured on sync"
         estimated_start_time_on_sync = (json_start_time - sync_start_time).seconds
-        _threshold = 10 # the allowable difference in seconds between the system time on sync computer and the system time on the vidmon computer
-        assert abs(estimated_start_time_on_sync - exposing_times[0]) < _threshold, f"First exposing time {exposing_times[0]} s isn't close to estimated video start time {estimated_start_time_on_sync} s: check method for dividing exposing times into blocks"
-        
+        _threshold = 10  # the allowable difference in seconds between the system time on sync computer and the system time on the vidmon computer
+        assert (
+            abs(estimated_start_time_on_sync - exposing_times[0]) < _threshold
+        ), f"First exposing time {exposing_times[0]} s isn't close to estimated video start time {estimated_start_time_on_sync} s: check method for dividing exposing times into blocks"
+
         camera_frame_times = remove_lost_frame_times(
             exposing_times,
             get_lost_frames_from_camera_info(camera_to_json_data[camera]),

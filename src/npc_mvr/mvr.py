@@ -519,51 +519,78 @@ def get_video_frame_times(
         logger.warning(
             f"Camera lines are plugged into sync incorrectly - we'll accommodate for this, but if this is a recent session check the rig: {correct_sync_line_name_mapping}"
         )
-    camera_exposing_times = get_cam_exposing_times_on_sync(sync_path_or_dataset)
-    camera_exposing_times = {
-        camera: camera_exposing_times[
+    _exposing_times = get_cam_exposing_times_on_sync(sync_path_or_dataset)
+    camera_exposing_times = {}
+    for camera in _exposing_times:
+        camera_exposing_times[camera] = _exposing_times[
             get_camera_name(correct_sync_line_name_mapping[camera])
         ]
-        for camera in camera_exposing_times
-    }
     frame_times: dict[upath.UPath, npt.NDArray[np.floating]] = {}
-    for camera in camera_exposing_times:
-        if camera in camera_to_video_path:
-            num_frames_in_video = get_total_frames_in_video(
-                camera_to_video_path[camera]
+    for camera, exposing_times in camera_exposing_times.items():
+        if camera not in camera_to_video_path:
+            continue
+        num_frames_in_video = get_total_frames_in_video(
+            camera_to_video_path[camera]
+        )
+        # if sync + MVR started long before experiment (ie. pretest that wasn't
+        # stopped) sync will have extra exposing times at start that we need to ignore.
+        # outlier long exposing intervals help us identify MVR recordings being
+        # stopped then restarted for the experiment. We expect one, but could be
+        # multiple. Split on long intervals and get the block with len closest to
+        # num_frames_in_video (from the experiment video file)
+        intervals = np.diff(exposing_times)
+        interval_z = np.abs(intervals - np.median(intervals)) / np.std(intervals)
+        long_interval_idx = np.where(interval_z > 50)[0] 
+        # breaks between recordings typically 100s or 1000s of seconds, but for
+        # 644867_2023-02-23 it's only 0.36 s (zscore > 500)
+        if long_interval_idx.any():
+            exposing_time_blocks = np.split(exposing_times, long_interval_idx + 1)
+            logger.warning(f"Long exposure times detected for {camera_to_video_path[camera].as_posix()}, suggesting multiple videos captured on sync: {len(exposing_time_blocks)=}")
+            assert np.all(np.diff([e[0] for e in exposing_time_blocks]) > 4 * np.median(intervals)), f"Exposing times not split correctly for {camera}"
+            exposing_times = min(
+                exposing_time_blocks,
+                key=lambda block: abs(len(block) - num_frames_in_video),
             )
-            camera_frame_times = remove_lost_frame_times(
-                camera_exposing_times[camera],
-                get_lost_frames_from_camera_info(camera_to_json_data[camera]),
+        # check that exposing time in results is close to video start time in metadata:
+        json_start_time = datetime.datetime.fromisoformat(camera_to_json_data[camera]["TimeStart"].strip("Z"))
+        sync_start_time = npc_sync.get_sync_data(sync_path_or_dataset).start_time
+        assert sync_start_time < json_start_time, f"Video start time from json info {json_start_time} is before sync start time {sync_start_time} for {camera}: cannot align frames if first exposure not captured on sync"
+        estimated_start_time_on_sync = (json_start_time - sync_start_time).seconds
+        _threshold = 10 # the allowable difference in seconds between the system time on sync computer and the system time on the vidmon computer
+        assert abs(estimated_start_time_on_sync - exposing_times[0]) < _threshold, f"First exposing time {exposing_times[0]} s isn't close to estimated video start time {estimated_start_time_on_sync} s: check method for dividing exposing times into blocks"
+        
+        camera_frame_times = remove_lost_frame_times(
+            exposing_times,
+            get_lost_frames_from_camera_info(camera_to_json_data[camera]),
+        )
+        # Insert a nan frame time at the beginning to account for metadata frame
+        camera_frame_times = np.insert(camera_frame_times, 0, np.nan)
+        if (
+            apply_correction
+            and (
+                frames_missing_from_sync := num_frames_in_video
+                - len(camera_frame_times)
             )
-            # Insert a nan frame time at the beginning to account for metadata frame
-            camera_frame_times = np.insert(camera_frame_times, 0, np.nan)
-            if (
-                apply_correction
-                and (
-                    frames_missing_from_sync := num_frames_in_video
-                    - len(camera_frame_times)
-                )
-                > 0
-            ):
-                # append nan frametimes for frames that are in the video file but
-                # are unnaccounted for on sync (sync stopped before all frames
-                # finished transferring):
-                camera_frame_times = np.append(
-                    camera_frame_times,
-                    np.full(frames_missing_from_sync, np.nan),
-                )
-            elif apply_correction and (len(camera_frame_times) > num_frames_in_video):
-                # cut frame times at the end of the sync file that don't
-                # correspond to actual frames in the video file:
-                camera_frame_times = camera_frame_times[:num_frames_in_video]
-            if apply_correction:
-                assert len(camera_frame_times) == num_frames_in_video, (
-                    f"Expected {num_frames_in_video} frame times, got {len(camera_frame_times)} "
-                    f"for {camera_to_video_path[camera]}"
-                    f"{'' if apply_correction else ' (try getting frametimes with `apply_correction=True`)'}"
-                )
-            frame_times[camera_to_video_path[camera]] = camera_frame_times
+            > 0
+        ):
+            # append nan frametimes for frames that are in the video file but
+            # are unnaccounted for on sync (sync stopped before all frames
+            # finished transferring):
+            camera_frame_times = np.append(
+                camera_frame_times,
+                np.full(frames_missing_from_sync, np.nan),
+            )
+        elif apply_correction and (len(camera_frame_times) > num_frames_in_video):
+            # cut frame times at the end of the sync file that don't
+            # correspond to actual frames in the video file:
+            camera_frame_times = camera_frame_times[:num_frames_in_video]
+        if apply_correction:
+            assert len(camera_frame_times) == num_frames_in_video, (
+                f"Expected {num_frames_in_video} frame times, got {len(camera_frame_times)} "
+                f"for {camera_to_video_path[camera]}"
+                f"{'' if apply_correction else ' (try getting frametimes with `apply_correction=True`)'}"
+            )
+        frame_times[camera_to_video_path[camera]] = camera_frame_times
     return frame_times
 
 

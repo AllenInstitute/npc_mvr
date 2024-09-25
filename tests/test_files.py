@@ -23,7 +23,6 @@ def test_long_sync_sessions() -> None:
         assert np.all(np.abs(frame_time_lengths - np.mean(frame_time_lengths) < 60 * 10)), f"frame time lengths different between cameras: {frame_time_lengths}"
     
 if __name__ == '__main__':
-    test_long_sync_sessions()
     import pytest
     
     pytest.main(['-v', __file__])

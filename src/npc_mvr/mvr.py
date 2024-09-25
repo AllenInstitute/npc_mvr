@@ -530,6 +530,16 @@ def get_video_frame_times(
         if camera not in camera_to_video_path:
             continue
         num_frames_in_video = get_total_frames_in_video(camera_to_video_path[camera])
+        json_start_time = datetime.datetime.fromisoformat(
+            camera_to_json_data[camera]["TimeStart"].strip("Z")
+        )
+        sync_start_time = npc_sync.get_sync_data(sync_path_or_dataset).start_time
+        # check that exposing time in results is close to video start time in metadata:
+        assert (
+            sync_start_time < json_start_time
+        ), f"Video start time from json info {json_start_time} is before sync start time {sync_start_time} for {camera}: cannot align frames if first exposure not captured on sync"
+        
+        estimated_start_time_on_sync = (json_start_time - sync_start_time).seconds
         # if sync + MVR started long before experiment (ie. pretest that wasn't
         # stopped) sync will have extra exposing times at start that we need to ignore.
         # outlier long exposing intervals help us identify MVR recordings being
@@ -551,17 +561,8 @@ def get_video_frame_times(
             ), f"Exposing times not split correctly for {camera}"
             exposing_times = min(
                 exposing_time_blocks,
-                key=lambda block: abs(len(block) - num_frames_in_video),
+                key=lambda block: abs(block[0] - estimated_start_time_on_sync),
             )
-        # check that exposing time in results is close to video start time in metadata:
-        json_start_time = datetime.datetime.fromisoformat(
-            camera_to_json_data[camera]["TimeStart"].strip("Z")
-        )
-        sync_start_time = npc_sync.get_sync_data(sync_path_or_dataset).start_time
-        assert (
-            sync_start_time < json_start_time
-        ), f"Video start time from json info {json_start_time} is before sync start time {sync_start_time} for {camera}: cannot align frames if first exposure not captured on sync"
-        estimated_start_time_on_sync = (json_start_time - sync_start_time).seconds
         _threshold = 10  # the allowable difference in seconds between the system time on sync computer and the system time on the vidmon computer
         assert (
             abs(estimated_start_time_on_sync - exposing_times[0]) < _threshold

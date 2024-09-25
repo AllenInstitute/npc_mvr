@@ -538,7 +538,7 @@ def get_video_frame_times(
         assert (
             sync_start_time < json_start_time
         ), f"Video start time from json info {json_start_time} is before sync start time {sync_start_time} for {camera}: cannot align frames if first exposure not captured on sync"
-        
+
         estimated_start_time_on_sync = (json_start_time - sync_start_time).seconds
         # if sync + MVR started long before experiment (ie. pretest that wasn't
         # stopped) sync will have extra exposing times at start that we need to ignore.

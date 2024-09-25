@@ -7,6 +7,7 @@ def test_long_sync_sessions() -> None:
     - see https://github.com/AllenInstitute/npc_sessions/issues/114
     """
     for raw_data_path in (
+        's3://aind-ephys-data/ecephys_660023_2023-08-08_07-58-13',
         's3://aind-ephys-data/ecephys_666986_2023-08-15_08-13-00',
         's3://aind-ephys-data/ecephys_644867_2023-02-23_12-14-29',
         's3://aind-ephys-data/ecephys_660023_2023-08-09_08-09-09',
@@ -22,6 +23,7 @@ def test_long_sync_sessions() -> None:
         assert np.all(np.abs(frame_time_lengths - np.mean(frame_time_lengths) < 60 * 10)), f"frame time lengths different between cameras: {frame_time_lengths}"
     
 if __name__ == '__main__':
+    test_long_sync_sessions()
     import pytest
     
     pytest.main(['-v', __file__])

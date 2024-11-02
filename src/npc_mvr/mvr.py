@@ -77,12 +77,26 @@ class MVRDataset:
     """
 
     def __init__(
-        self, session_dir: npc_io.PathLike, sync_path: npc_io.PathLike | None = None
+        self,
+        session_dir: npc_io.PathLike,
+        sync_path: npc_io.PathLike | npc_sync.SyncDataset | None = None,
+        video_name_filter: str | None = None,
+        task_data_or_path: Any = None,
     ) -> None:
         self.session_dir = npc_io.from_pathlike(session_dir)
-        if sync_path is not None:
-            self.sync_path = npc_io.from_pathlike(sync_path)
-
+        self._sync_data: npc_sync.SyncDataset | None
+        if isinstance(sync_path, npc_sync.SyncDataset):
+            self._sync_data = sync_path
+        elif sync_path is not None:
+            self._sync_data = npc_sync.get_sync_data(sync_path)
+        else:
+            try:
+                npc_sync.get_single_sync_path(self.sync_dir)
+            except (ValueError, FileNotFoundError):
+                self._sync_data = None
+        self._video_name_filter = video_name_filter or ""
+        self.task_data_or_path = task_data_or_path # for behavior box sessions
+        
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.session_dir})"
 
@@ -105,6 +119,14 @@ class MVRDataset:
         return self.session_dir.protocol not in ("file", "")
 
     @npc_io.cached_property
+    def is_behavior_box(self) -> bool:
+        return self.video_paths.keys() == {"behavior"} and not self.is_sync
+
+    @npc_io.cached_property
+    def is_sync(self) -> bool:
+        return self._sync_data is not None
+
+    @npc_io.cached_property
     def sync_dir(self) -> upath.UPath:
         if (path := self.session_dir / "behavior").exists():
             return path
@@ -121,22 +143,38 @@ class MVRDataset:
 
     @npc_io.cached_property
     def frame_times(self) -> dict[CameraName, npt.NDArray[np.float64]]:
-        """Returns frametimes (in seconds) as measured on sync clock for each
-        camera.
+        """Returns frametimes (in seconds) for each camera.
+        
+        - metadata frame is at index 0 with a nan value
+        - times are according to the sync clock, if sync data is available
+        - times are according to the task control clock for behavior box sessions
 
         - see `get_video_frame_times` for more details
         """
-        return {
-            get_camera_name(p.stem): times
-            for p, times in get_video_frame_times(
-                self.sync_data, *self.video_paths.values()
-            ).items()
-        }
+        if self.is_sync:
+            return {
+                get_camera_name(p.stem): times
+                for p, times in get_video_frame_times(
+                    self.sync_data, *self.video_paths.values()
+                ).items()
+            }
+        if self.is_behavior_box:
+            return {
+                get_camera_name('behavior'): get_video_frame_times_for_behavior_session(
+                    self.video_paths['behavior'], self.task_data_or_path,
+                )
+            }
+        else:
+            raise AttributeError(
+                f"No sync data available for {self.session_dir}. If this is a behavior box session,"
+                "use `npc_mvr.get_video_frame_times_for_behavior_session` with a DynRoutData object"
+            )
 
     @npc_io.cached_property
     def video_paths(self) -> dict[CameraName, upath.UPath]:
         return {
             get_camera_name(p.stem): p for p in get_video_file_paths(self.video_dir)
+            if self._video_name_filter in p.stem
         }
 
     @npc_io.cached_property
@@ -151,6 +189,7 @@ class MVRDataset:
         return {
             get_camera_name(p.stem): p
             for p in get_video_info_file_paths(self.video_dir)
+            if self._video_name_filter in p.stem
         }
 
     @npc_io.cached_property
@@ -161,12 +200,11 @@ class MVRDataset:
         }
 
     @npc_io.cached_property
-    def sync_path(self) -> upath.UPath:
-        return npc_sync.get_single_sync_path(self.sync_dir)
-
-    @npc_io.cached_property
     def sync_data(self) -> npc_sync.SyncDataset:
-        return npc_sync.get_sync_data(self.sync_path)
+        if self._sync_data is not None:
+            return self._sync_data
+        else:
+            raise AttributeError(f"No sync data available for {self.session_dir}: this may be a behavior box session")
 
     @npc_io.cached_property
     def video_start_times(self) -> dict[CameraName, datetime.datetime]:
@@ -245,7 +283,7 @@ class MVRDataset:
 
     @npc_io.cached_property
     def lick_frames(self) -> npt.NDArray[np.intp]:
-        if self.sync_path:
+        if self.is_sync:
             lick_times = self.sync_data.get_rising_edges("lick_sensor", units="seconds")
             return np.array(
                 [
@@ -376,6 +414,7 @@ def get_camera_name(path: str) -> CameraName:
         "eye": "eye",
         "face": "face",
         "beh": "behavior",
+        "_box_": "behavior",
     }
     try:
         return names[next(n for n in names if n in str(path).lower())]
@@ -700,7 +739,7 @@ def get_video_file_paths(*paths: npc_io.PathLike) -> tuple[upath.UPath, ...]:
         p
         for p in upaths
         if p.suffix in (".avi", ".mp4")
-        and any(label in p.stem.lower() for label in ("eye", "face", "beh"))
+        and any(label in p.stem.lower() for label in ("eye", "face", "beh", "_box_"))
     )
 
 
@@ -911,6 +950,231 @@ def get_frame(video_data: cv2.VideoCapture, frame_number: int) -> npt.NDArray[np
     video_data.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
     return video_data.read()[1]  # type: ignore
 
+def get_frametimes_from_behavior_session_original(mvr_dataset, task_data_or_path):
+    try:
+        import npc_samstim
+    except ImportError:
+        raise ImportError("`npc_samstim` required to get frametimes for behavior boxes")
+    import npc_stim # installed with npc_samstim
+    behavData = npc_samstim.get_sam(task_data_or_path)
+    # override filtered lick times 
+    behavData.lickFrames = npc_stim.get_stim_data(task_data_or_path)['lickFrames'][:]
+    behavData.lickTimes = behavData.frameTimes[behavData.lickFrames]
+    
+    videoData = mvr_dataset.info_data['behavior']
+    lostFrames = videoData['LostFrames']
+    assert(len(lostFrames) < 1) # haven't found any videos with lost frames, so not dealing with them yet
+
+    numVideoFrames = videoData['FramesRecorded']
+    videoFrameRate = videoData['FPS']
+
+    cameraInput = np.array([int(v) for v in videoData['CameraInput'][0].split(',')])
+    videoLickFrames = cameraInput[0::2][cameraInput[1::2].astype(bool)]
+    assert(videoLickFrames.size == videoData['CameraInputCount'])
+
+    # remove video licks before or after behavior session
+    if videoLickFrames.size > behavData.lickFrames.size:
+        videoLickIntervals = np.diff(videoLickFrames) * 2
+        behavLickIntervals = np.diff(behavData.lickFrames)
+        c = np.correlate(videoLickIntervals,behavLickIntervals)
+        peak = np.argmax(c)
+        if peak > videoLickIntervals.size:
+            i = peak - c.size
+            videoLickFrames = videoLickFrames[i-behavData.lickFrames.size:i]
+        else:
+            i = peak
+            videoLickFrames = videoLickFrames[i:i+behavData.lickFrames.size]
+    assert(videoLickFrames.size == behavData.lickFrames.size)
+
+    # get video frame times aligned to behavior session
+    videoFrameTimes = [] # list of arrays of frame times between licks
+
+    # get frame times to first lick using time of first lick and video frame rate
+    videoStartTime = behavData.lickTimes[0] - videoLickFrames[0]/videoFrameRate # relative to start of behavior session
+    videoFrameTimes.append(np.linspace(videoStartTime, behavData.lickTimes[0], videoLickFrames[0])[:-1])
+
+    # get frame times between licks using frame interval implied by interval between licks and number of video frames
+    for i in range(videoLickFrames.size-1):
+        nFrames = videoLickFrames[i+1] - videoLickFrames[i]
+        videoFrameTimes.append(np.linspace(behavData.lickTimes[i], behavData.lickTimes[i+1], nFrames + 1)[:-1])
+
+    # get frame times after last lick
+    nFrames = numVideoFrames - videoLickFrames[-1]
+    videoStopTime = behavData.lickTimes[-1] + nFrames/videoFrameRate
+    videoFrameTimes.append(np.linspace(behavData.lickTimes[-1], videoStopTime, nFrames + 1))
+
+    # concatenate all the frame times
+    videoFrameTimes = np.concatenate(videoFrameTimes)
+    assert(videoFrameTimes.size == numVideoFrames)
+    return videoFrameTimes
+
+def get_video_frame_times_for_behavior_session(
+    mvr_dataset,
+    task_data_or_path,
+):
+    """Returns predicted vis stim frametimes, for use with behavior file.
+    
+    from https://github.com/samgale/DynamicRoutingTask/blob/dbf6df70fc0edc8aae51eceb409e0bb6c84cc981/Analysis/alignBehavVideo.py
+    """
+    try:
+        import npc_samstim
+    except ImportError:
+        raise ImportError("`npc_samstim` required to get frametimes for behavior boxes")
+    import npc_stim # installed with npc_samstim
+    behavData = npc_samstim.get_sam(task_data_or_path)
+    # override filtered lick times 
+    behavData.lickFrames = npc_stim.get_stim_data(task_data_or_path)['lickFrames'][:]
+    behavData.lickTimes = behavData.frameTimes[behavData.lickFrames]
+    
+    videoPath = mvr_dataset.video_paths['behavior']
+    videoInfo = mvr_dataset.info_data['behavior']
+    videoData = mvr_dataset.video_data['behavior']
+
+    numVideoFrames = get_total_frames_in_video(videoData)
+    assert numVideoFrames == videoInfo['FramesRecorded'] + 1 # +1 for metadata frame
+    lostFrames = get_lost_frames_from_camera_info(videoInfo)
+    videoFrameRate = videoInfo['FPS']
+    videoLickFrames = np.array(get_lick_frames_from_behavior_info(videoInfo))
+    assert(videoLickFrames.size == videoInfo['CameraInputCount'])
+    # lost and lick frames from camera json are 0-indexed. If metadata frame is present, it is frame 0
+
+    # remove video licks before or after behavior session
+    if videoLickFrames.size > behavData.lickFrames.size:
+        videoLickIntervals = np.diff(videoLickFrames) * (behavData.frameRate / videoFrameRate)
+        behavLickIntervals = np.diff(behavData.lickFrames)
+        c = np.correlate(videoLickIntervals,behavLickIntervals)
+        peak = np.argmax(c)
+        assert peak <= videoLickIntervals.size
+        if peak > videoLickIntervals.size: # shouldn't be possible?
+            videoLickFrames = videoLickFrames[peak - behavData.lickFrames.size: peak]
+        else:
+            videoLickFrames = videoLickFrames[peak: peak + behavData.lickFrames.size]
+    # elif videoLickFrames.size < behavData.lickFrames.size:
+    #     c = np.correlate(behavLickIntervals, videoLickIntervals)
+    #     peak = np.argmax(c)
+    #     nans = np.full(behavData.lickFrames.size - videoLickFrames.size, np.nan)
+    #     if peak == 0:
+    #         videoLickFrames = np.concatenate([videoLickFrames, nans])
+    #     else:
+    #         videoLickFrames = np.concatenate([nans, videoLickFrames])
+
+    assert(videoLickFrames.size <= behavData.lickFrames.size ==  behavData.lickTimes.size)
+    if videoLickFrames.size > behavData.lickFrames.size: 
+        raise NotImplementedError(f"Video licks {videoLickFrames.size} > behavior licks {behavData.lickFrames.size} - cannot handle this currently")
+    # get video frame times aligned to behavior session
+    videoFrameTimes = [] # list of arrays of frame times between licks
+    videoFrameTimes.append(np.array([np.nan])) # nan first frame time for metadata frame
+
+    def get_lost_frames_between(start_frame_idx, end_frame_idx):
+        return lostFrames[(lostFrames >= start_frame_idx) & (lostFrames < end_frame_idx)]
+    
+    def append_frame_times(start_frame_idx, end_frame_idx, start_time, end_time):
+        assert end_frame_idx % 1 == start_frame_idx % 1 == 0
+        nFrames = int(end_frame_idx - start_frame_idx)
+        lost_frames_between_licks = get_lost_frames_between(start_frame_idx, end_frame_idx)
+        n_lost_frames = len(lost_frames_between_licks)
+        if n_lost_frames:
+            print(f"Adjusting for lost frames: {lost_frames_between_licks}")
+        frame_idx = np.linspace(start_frame_idx, end_frame_idx, nFrames + n_lost_frames, endpoint=False).astype(int)
+        frame_times = np.linspace(start_time, end_time, nFrames + n_lost_frames, endpoint=False) # (..., nFrames+1)[:-1] or endpoint=false
+        assert frame_times.size == frame_idx.size
+        assert np.all(np.diff(frame_times) > 0)
+        if np.abs((frame_times[-1] - frame_times[0]) / len(frame_times) - (1 / videoFrameRate)) > (2 / videoFrameRate):
+            raise AssertionError(f"Frame interval is not close to 1 / videoFrameRate: {frame_times[-1] - frame_times[0]} / {len(frame_times)} != 1 / {videoFrameRate}")
+        videoFrameTimes.append(frame_times[np.in1d(frame_idx, lost_frames_between_licks, assume_unique=True, invert=True)])
+
+    # get frame times to first lick using time of first lick and video frame rate
+    videoStartTime = behavData.lickTimes[0] - videoLickFrames[0]/videoFrameRate # relative to start of behavior session
+    append_frame_times(start_frame_idx=1, end_frame_idx=videoLickFrames[0], start_time=videoStartTime, end_time=behavData.lickTimes[0])
+
+    # get frame times between licks using frame interval implied by interval between licks and
+    # number of video frames
+    i_vid = -1
+    i_behav = -1
+    for i in range(videoLickFrames.size-1):
+        i_vid += 1
+        i_behav += 1
+        assert i_vid == i_behav
+        # TODO: handle mismatches in lick intervals (at some point, a lick is missing in the video frames)
+        # Example case: 750092_Box_2_20241008T103718.avi
+        start_frame_idx=videoLickFrames[i_vid]
+        end_frame_idx=videoLickFrames[i_vid+1]
+        start_time=behavData.lickTimes[i_behav]
+        end_time=behavData.lickTimes[i_behav+1]
+        append_frame_times(start_frame_idx=start_frame_idx, end_frame_idx=end_frame_idx, start_time=start_time, end_time=end_time)
+        
+    # get frame times after last lick
+    nFrames = numVideoFrames - videoLickFrames[-1]
+    videoStopTime = behavData.lickTimes[-1] + nFrames/videoFrameRate
+    append_frame_times(start_frame_idx=videoLickFrames[-1], end_frame_idx=numVideoFrames, start_time=behavData.lickTimes[-1], end_time=videoStopTime)
+    
+    # concatenate all the frame times
+    videoFrameTimes = np.concatenate(videoFrameTimes)
+    assert(videoFrameTimes.size == numVideoFrames)
+    return videoFrameTimes
+
+def validate_stim_frame_times_for_behavior_session(
+    videoFrameTimes,
+    mvr_dataset,
+    task_data_or_path,
+):
+    """Returns diff between predicted vis stim onset frame (from videoFrameTimes) and actual
+    onset frame (from sam_obj.stimStartTimes).
+    
+    from https://github.com/samgale/DynamicRoutingTask/blob/dbf6df70fc0edc8aae51eceb409e0bb6c84cc981/Analysis/alignBehavVideo.py
+    """
+    try:
+        import npc_samstim
+    except ImportError:
+        raise ImportError("`npc_samstim` required to get frametimes for behavior boxes")
+    import npc_stim # installed with npc_samstim
+    task_data = npc_stim.get_stim_data(task_data_or_path)
+    behavData = npc_samstim.get_sam(task_data_or_path)
+    
+    # find video frames corresponding to visual stimulus onset times in behavior file
+    visOnsetTimes = behavData.stimStartTimes[np.in1d(behavData.trialStim,('vis1','vis2'))]
+    predictedVisOnsetFrames = np.searchsorted(videoFrameTimes,visOnsetTimes) # first video frame after vis stim onset
+
+    # find visual stimulus onset frames in video by thresholding roi over stimulus location
+    videoIn = get_video_data(mvr_dataset.video_paths['behavior'])
+    
+    stimRoiIntensity = []
+    # don't skip first frame (metadata)
+    while True:
+        isFrame,videoFrame = videoIn.read()
+        if isFrame:
+            videoFrame = cv2.cvtColor(videoFrame,cv2.COLOR_BGR2GRAY)
+            stimRoiIntensity.append(videoFrame[:60,:30].mean())
+        else:
+            break
+    videoIn.release()
+    
+    stimRoiIntensity = np.array(stimRoiIntensity)
+    assert(stimRoiIntensity.size == mvr_dataset.info_data['behavior']['FramesRecorded'] + 1) # +1 for metadata frame
+    
+    # find roi intensity changes
+    m = np.median(stimRoiIntensity)
+    thresh = 0.05 * m
+    aboveThresh = (stimRoiIntensity < m - thresh) | (stimRoiIntensity > m + thresh)
+    threshFrames = np.where(aboveThresh)[0]
+    
+    # find onsets; remove first and last (start and end of session)
+    d = np.concatenate(([0],np.diff(threshFrames)))
+    onsetFrames = threshFrames[d > 30][:-1]
+    
+    # remove timeouts
+    visOnsetFrames = np.array([i for i in onsetFrames if aboveThresh[i:i+20].sum() < 19])
+    
+    # remove onset of non-completed trial if present
+    if not hasattr(behavData, "endsWithNonCompletedTrial"):
+        behavData.endsWithNonCompletedTrial = task_data['trialStartFrame'].size > task_data['trialEndFrame'].size
+    if behavData.endsWithNonCompletedTrial and (visOnsetFrames.size - predictedVisOnsetFrames.size) == 1:
+        visOnsetFrames = visOnsetFrames[:-1]
+        
+    assert(visOnsetFrames.size == predictedVisOnsetFrames.size > 0)
+
+    # get difference between predicted and actual vis stim onset frames
+    return np.subtract(predictedVisOnsetFrames, visOnsetFrames)
 
 if __name__ == "__main__":
     d = MVRDataset("s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15")

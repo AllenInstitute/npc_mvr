@@ -89,9 +89,11 @@ class MVRDataset:
             self._sync_data = npc_sync.get_sync_data(sync_path)
         else:
             try:
-                npc_sync.get_single_sync_path(self.sync_dir)
+                sync_path = npc_sync.get_single_sync_path(self.sync_dir)
             except (ValueError, FileNotFoundError):
                 self._sync_data = None
+            else:
+                self._sync_data = npc_sync.get_sync_data(sync_path)
         self._video_name_filter = video_name_filter or ""
         self.task_data_or_path = task_data_or_path # for behavior box sessions
         
@@ -1181,9 +1183,6 @@ def validate_stim_frame_times_for_behavior_session(
     return np.subtract(predictedVisOnsetFrames, visOnsetFrames)
 
 if __name__ == "__main__":
-    d = MVRDataset("s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15")
-    d.validate()
-
     from npc_mvr import testmod
 
     testmod()

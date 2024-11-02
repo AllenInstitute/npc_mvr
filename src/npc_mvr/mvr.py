@@ -607,7 +607,7 @@ def get_video_frame_times(
             abs(estimated_start_time_on_sync - exposing_times[0]) < _threshold
         ), f"First exposing time {exposing_times[0]} s isn't close to estimated video start time {estimated_start_time_on_sync} s: check method for dividing exposing times into blocks"
 
-        camera_frame_times = remove_lost_frame_times(
+        camera_frame_times = remove_lost_frame_idx(
             exposing_times,
             get_lost_frames_from_camera_info(camera_to_json_data[camera]),
         )
@@ -684,8 +684,11 @@ def get_lost_frames_from_camera_info(
     info_path_or_data: MVRInfoData | npc_io.PathLike,
 ) -> npt.NDArray[np.int32]:
     """
+    LostFrames are 0-indexed (including metadata frame if present), so a value of 4 means the 5th
+    frame in the actual video.
+    
     >>> get_lost_frames_from_camera_info({'LostFrames': ['1-2,4-5,7']})
-    array([0, 1, 3, 4, 6])
+    array([1, 2, 4, 5, 7])
     """
     info = get_video_info_data(info_path_or_data)
 
@@ -703,7 +706,7 @@ def get_lost_frames_from_camera_info(
         else:
             lost_frames.extend(np.arange(int(start_end[0]), int(start_end[1]) + 1))
 
-    return np.subtract(lost_frames, 1)  # lost frames in info are 1-indexed
+    return np.array(lost_frames)  # lost frames in info are 0-indexed (where frame 0 may be metadata frame)
 
 
 def get_total_frames_from_camera_info(
@@ -718,7 +721,7 @@ def get_total_frames_from_camera_info(
 NumericT = TypeVar("NumericT", bound=np.generic, covariant=True)
 
 
-def remove_lost_frame_times(
+def remove_lost_frame_idx(
     frame_times: Iterable[NumericT], lost_frame_idx: Container[int]
 ) -> npt.NDArray[NumericT]:
     """
@@ -930,7 +933,10 @@ def get_lick_frames_from_behavior_info(
     info_path_or_data: MVRInfoData | npc_io.PathLike,
 ) -> tuple[int, ...]:
     def parse_camera_input(camera_input: str) -> tuple[int, ...]:
-        """
+        """    
+        CameraInput values are 0-indexed (including metadata frame if present), so a value of 105847 means the 105848th
+        frame in the actual video.
+    
         >>> camera_input = ["1,0,105847,1,105849,0,105936,1,105940,0,105945,1,105952,0,105962,1,105966,1,398682,0"]
         >>> parse_camera_input(camera_input)
         (105847, 105849, 105936, 105940, 105945, 105952, 105962, 105966, 398682)

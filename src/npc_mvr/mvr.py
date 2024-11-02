@@ -57,8 +57,6 @@ class MVRDataset:
     S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior_videos/Behavior_20230803T120430.mp4')
     >>> d.info_paths['behavior']
     S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior_videos/Behavior_20230803T120430.json')
-    >>> d.sync_path
-    S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior/20230803T120415.h5')
 
     # get data
     >>> type(d.video_data['behavior'])
@@ -437,7 +435,7 @@ def get_camera_sync_line_name_mapping(
     be used to wrap any access of line data.
 
     >>> m = MVRDataset('s3://aind-private-data-prod-o5171v/ecephys_703333_2024-04-09_13-06-44')
-    >>> get_camera_sync_line_name_mapping(m.sync_path, *m.video_paths.values())
+    >>> get_camera_sync_line_name_mapping(m.sync_data, *m.video_paths.values())
     {'behavior': 'beh', 'face': 'eye', 'eye': 'face'}
     """
     if len(video_paths) == 1:

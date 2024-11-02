@@ -27,8 +27,6 @@ pip install npc_mvr
 S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior/Behavior_20230803T120430.mp4')
 >>> d.info_paths['behavior']
 S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior/Behavior_20230803T120430.json')
->>> d.sync_path
-S3Path('s3://aind-ephys-data/ecephys_670248_2023-08-03_12-04-15/behavior/20230803T120415.h5')
 
 # get data
 >>> type(d.video_data['behavior'])

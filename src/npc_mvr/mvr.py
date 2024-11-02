@@ -725,7 +725,7 @@ def remove_lost_frame_idx(
     frame_times: Iterable[NumericT], lost_frame_idx: Container[int]
 ) -> npt.NDArray[NumericT]:
     """
-    >>> remove_lost_frame_times([1., 2., 3., 4., 5.], [1, 3])
+    >>> remove_lost_frame_idx([1., 2., 3., 4., 5.], [1, 3])
     array([1., 3., 5.])
     """
     return np.array(

@@ -161,7 +161,7 @@ class MVRDataset:
         if self.is_behavior_box:
             return {
                 get_camera_name("behavior"): get_video_frame_times_for_behavior_session(
-                    self.video_paths["behavior"],
+                    self,
                     self.task_data_or_path,
                 )
             }

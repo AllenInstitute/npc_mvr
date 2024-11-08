@@ -12,7 +12,7 @@ dependencies = [
     "opencv-python-headless>=4.9.0.80",
     "typing-extensions>=4.9.0",
 ]
-version = "0.1.9"
+version = "0.1.10"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",

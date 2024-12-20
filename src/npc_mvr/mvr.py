@@ -25,8 +25,8 @@ MVRInfoData: TypeAlias = Mapping[str, Any]
 """Contents of `RecordingReport` from a camera's info.json for an MVR
 recording."""
 
-CameraName: TypeAlias = Literal["eye", "face", "behavior"]
-CameraNameOnSync: TypeAlias = Literal["eye", "face", "beh"]
+CameraName: TypeAlias = Literal["eye", "face", "behavior", "head"]
+CameraNameOnSync: TypeAlias = Literal["eye", "face", "beh", "head"]
 
 
 class MVRDataset:
@@ -419,6 +419,7 @@ def get_camera_name(path: str) -> CameraName:
         "face": "face",
         "beh": "behavior",
         "_box_": "behavior",
+        "head": "zoom",
     }
     try:
         return names[next(n for n in names if n in str(path).lower())]

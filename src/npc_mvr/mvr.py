@@ -120,8 +120,10 @@ class MVRDataset:
 
     @npc_io.cached_property
     def is_behavior_box(self) -> bool:
-        if not self.video_paths: 
-            raise NotImplementedError("No video files found in session directory - cannot determine if this is a behavior box session")
+        if not self.video_paths:
+            raise NotImplementedError(
+                "No video files found in session directory - cannot determine if this is a behavior box session"
+            )
         return self.video_paths.keys() == {"behavior"} and not self.is_sync
 
     @npc_io.cached_property

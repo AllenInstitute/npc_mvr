@@ -115,8 +115,11 @@ class MVRDataset:
         self._session_dir = path
 
     @npc_io.cached_property
-    def is_cloud(self) -> bool:
-        return self.session_dir.protocol not in ("file", "")
+    def is_npexp_format(self) -> bool:
+        for name in ("behavior_videos", "behavior-videos", "behavior"):
+            if (self.session_dir / name).exists():
+                return False
+        return True
 
     @npc_io.cached_property
     def is_behavior_box(self) -> bool:
@@ -138,7 +141,7 @@ class MVRDataset:
 
     @npc_io.cached_property
     def video_dir(self) -> upath.UPath:
-        if not self.is_cloud:
+        if self.is_npexp_format:
             return self.session_dir
         for name in ("behavior_videos", "behavior-videos", "behavior"):
             if (path := self.session_dir / name).exists():

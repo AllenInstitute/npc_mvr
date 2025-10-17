@@ -165,8 +165,6 @@ class MVRDataset:
                     self.sync_data, *self.video_paths.values()
                 ).items()
             }
-        if not self.video_paths:
-            return {}
         if self.is_behavior_box:
             return {
                 get_camera_name("behavior"): get_video_frame_times_for_behavior_session(
@@ -428,8 +426,6 @@ def get_camera_name(path: str) -> CameraName:
         "face": "face",
         "beh": "behavior",
         "_box_": "behavior",
-        "head": "head",
-        "zoom": "head",
         "nose": "nose",
     }
     try:
@@ -463,7 +459,9 @@ def get_camera_sync_line_name_mapping(
     camera_to_json_data = {
         get_camera_name(path.stem): get_video_info_data(path) for path in jsons
     }
-    camera_names_on_sync = ("beh", "face", "eye")
+    camera_names_on_sync = [
+        name for name in ("beh", "face", "eye", "nose") if f"{name}_cam_exposing" in sync_data.line_labels
+    ]
 
     def get_exposure_fingerprint_durations_from_jsons() -> dict[str, int]:
         """Nominally expected exposure time in milliseconds for each camera, as
@@ -662,7 +660,7 @@ def get_cam_line_times_on_sync(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
     sync_line_suffix: str,
     edge_type: Literal["rising", "falling"] = "rising",
-) -> dict[CameraName, npt.NDArray[np.float64]]:
+) -> dict[Literal["behavior", "eye", "face"], npt.NDArray[np.float64]]:
     sync_data = npc_sync.get_sync_data(sync_path_or_dataset)
 
     edge_getter = (
@@ -680,19 +678,19 @@ def get_cam_line_times_on_sync(
 
 def get_cam_exposing_times_on_sync(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
-) -> dict[CameraName, npt.NDArray[np.float64]]:
+) -> dict[Literal["behavior", "eye", "face"], npt.NDArray[np.float64]]:
     return get_cam_line_times_on_sync(sync_path_or_dataset, "_cam_exposing")
 
 
 def get_cam_exposing_falling_edge_times_on_sync(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
-) -> dict[CameraName, npt.NDArray[np.float64]]:
+) -> dict[Literal["behavior", "eye", "face"], npt.NDArray[np.float64]]:
     return get_cam_line_times_on_sync(sync_path_or_dataset, "_cam_exposing", "falling")
 
 
 def get_cam_transfer_times_on_sync(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
-) -> dict[CameraName, npt.NDArray[np.float64]]:
+) -> dict[Literal["behavior", "eye", "face"], npt.NDArray[np.float64]]:
     return get_cam_line_times_on_sync(sync_path_or_dataset, "_cam_frame_readout")
 
 
@@ -760,7 +758,7 @@ def get_video_file_paths(*paths: npc_io.PathLike) -> tuple[upath.UPath, ...]:
         p
         for p in upaths
         if p.suffix in (".avi", ".mp4")
-        and any(label in p.stem.lower() for label in ("eye", "face", "beh", "_box_"))
+        and any(label in p.stem.lower() for label in ("eye", "face", "beh", "_box_", "nose"))
     )
 
 

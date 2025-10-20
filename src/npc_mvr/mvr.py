@@ -660,7 +660,7 @@ def get_cam_line_times_on_sync(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
     sync_line_suffix: str,
     edge_type: Literal["rising", "falling"] = "rising",
-) -> dict[Literal["behavior", "eye", "face"], npt.NDArray[np.float64]]:
+) -> dict[CameraName, npt.NDArray[np.float64]]:
     sync_data = npc_sync.get_sync_data(sync_path_or_dataset)
 
     edge_getter = (
@@ -678,19 +678,19 @@ def get_cam_line_times_on_sync(
 
 def get_cam_exposing_times_on_sync(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
-) -> dict[Literal["behavior", "eye", "face"], npt.NDArray[np.float64]]:
+) -> dict[CameraName, npt.NDArray[np.float64]]:
     return get_cam_line_times_on_sync(sync_path_or_dataset, "_cam_exposing")
 
 
 def get_cam_exposing_falling_edge_times_on_sync(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
-) -> dict[Literal["behavior", "eye", "face"], npt.NDArray[np.float64]]:
+) -> dict[CameraName, npt.NDArray[np.float64]]:
     return get_cam_line_times_on_sync(sync_path_or_dataset, "_cam_exposing", "falling")
 
 
 def get_cam_transfer_times_on_sync(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
-) -> dict[Literal["behavior", "eye", "face"], npt.NDArray[np.float64]]:
+) -> dict[CameraName, npt.NDArray[np.float64]]:
     return get_cam_line_times_on_sync(sync_path_or_dataset, "_cam_frame_readout")
 
 

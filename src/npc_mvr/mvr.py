@@ -460,7 +460,9 @@ def get_camera_sync_line_name_mapping(
         get_camera_name(path.stem): get_video_info_data(path) for path in jsons
     }
     camera_names_on_sync = [
-        name for name in ("beh", "face", "eye", "nose") if f"{name}_cam_exposing" in sync_data.line_labels
+        name
+        for name in ("beh", "face", "eye", "nose")
+        if f"{name}_cam_exposing" in sync_data.line_labels
     ]
 
     def get_exposure_fingerprint_durations_from_jsons() -> dict[str, int]:
@@ -758,7 +760,9 @@ def get_video_file_paths(*paths: npc_io.PathLike) -> tuple[upath.UPath, ...]:
         p
         for p in upaths
         if p.suffix in (".avi", ".mp4")
-        and any(label in p.stem.lower() for label in ("eye", "face", "beh", "_box_", "nose"))
+        and any(
+            label in p.stem.lower() for label in ("eye", "face", "beh", "_box_", "nose")
+        )
     )
 
 

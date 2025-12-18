@@ -473,6 +473,7 @@ def get_camera_sync_line_name_mapping(
                 get_camera_name(camera_name)
             ]["CustomInitialExposureTime"]
             for camera_name in camera_names_on_sync
+            if get_camera_name(camera_name) in camera_to_json_data
         }
 
     def get_exposure_fingerprint_durations_from_sync() -> dict[str, int]:
@@ -508,6 +509,8 @@ def get_camera_sync_line_name_mapping(
     expected_to_actual_line_mapping: dict[CameraName, CameraNameOnSync] = {}
     for sync_camera_name in camera_names_on_sync:
         exposing_line = f"{sync_camera_name}_cam_exposing"
+        if exposing_line not in expected_exposure_fingerprint_durations:
+            continue
         expected_duration = expected_exposure_fingerprint_durations[exposing_line]
         actual_line = min(
             actual_exposure_fingerprint_durations,
@@ -577,6 +580,8 @@ def get_video_frame_times(
     _exposing_times = get_cam_exposing_times_on_sync(sync_path_or_dataset)
     camera_exposing_times = {}
     for camera in _exposing_times:
+        if camera not in correct_sync_line_name_mapping:
+            continue
         camera_exposing_times[camera] = _exposing_times[
             get_camera_name(correct_sync_line_name_mapping[camera])
         ]

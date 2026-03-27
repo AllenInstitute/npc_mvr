@@ -624,9 +624,11 @@ def get_video_frame_times(
                 key=lambda block: abs(block[0] - estimated_start_time_on_sync),
             )
         _threshold = 10  # the allowable difference in seconds between the system time on sync computer and the system time on the vidmon computer
-        assert (
-            abs(estimated_start_time_on_sync - exposing_times[0]) < _threshold
-        ), f"First exposing time {exposing_times[0]} s isn't close to estimated video start time {estimated_start_time_on_sync} s: check method for dividing exposing times into blocks"
+        if abs(estimated_start_time_on_sync - exposing_times[0]) >= _threshold:
+            logger.warning(
+                f"First exposing time {exposing_times[0]} s isn't close to estimated video start time {estimated_start_time_on_sync} s for {camera}: skipping camera"
+            )
+            continue
 
         camera_frame_times = remove_lost_frame_idx(
             exposing_times,

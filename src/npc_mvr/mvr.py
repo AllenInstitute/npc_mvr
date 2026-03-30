@@ -233,6 +233,7 @@ class MVRDataset:
     @npc_io.cached_property
     def augmented_camera_info(self) -> dict[CameraName, dict[str, Any]]:
         cam_exposing_times = get_cam_exposing_times_on_sync(self.sync_data)
+        cam_transfer_times = get_cam_transfer_times_on_sync(self.sync_data)
         cam_exposing_falling_edge_times = get_cam_exposing_falling_edge_times_on_sync(
             self.sync_data
         )
@@ -494,7 +495,8 @@ def get_camera_sync_line_name_mapping(
                 f"{camera_name}{line_suffix}", units="seconds"
             )[0]
             for camera_name in camera_names_on_sync
-            for line_suffix in ("_cam_exposing",)
+            for line_suffix in ("_cam_exposing", "_cam_frame_readout")
+            if f"{camera_name}{line_suffix}" in sync_data.line_labels
         }
 
     start_times_on_sync = get_start_times_on_sync()
@@ -623,11 +625,9 @@ def get_video_frame_times(
                 key=lambda block: abs(block[0] - estimated_start_time_on_sync),
             )
         _threshold = 10  # the allowable difference in seconds between the system time on sync computer and the system time on the vidmon computer
-        if abs(estimated_start_time_on_sync - exposing_times[0]) >= _threshold:
-            logger.warning(
-                f"First exposing time {exposing_times[0]} s isn't close to estimated video start time {estimated_start_time_on_sync} s for {camera}: skipping camera"
-            )
-            continue
+        assert (
+            abs(estimated_start_time_on_sync - exposing_times[0]) < _threshold
+        ), f"First exposing time {exposing_times[0]} s isn't close to estimated video start time {estimated_start_time_on_sync} s: check method for dividing exposing times into blocks"
 
         camera_frame_times = remove_lost_frame_idx(
             exposing_times,
@@ -694,6 +694,12 @@ def get_cam_exposing_falling_edge_times_on_sync(
     sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
 ) -> dict[CameraName, npt.NDArray[np.float64]]:
     return get_cam_line_times_on_sync(sync_path_or_dataset, "_cam_exposing", "falling")
+
+
+def get_cam_transfer_times_on_sync(
+    sync_path_or_dataset: npc_io.PathLike | npc_sync.SyncDataset,
+) -> dict[CameraName, npt.NDArray[np.float64]]:
+    return get_cam_line_times_on_sync(sync_path_or_dataset, "_cam_frame_readout")
 
 
 def get_lost_frames_from_camera_info(

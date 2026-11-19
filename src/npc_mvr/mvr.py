@@ -69,8 +69,8 @@ class MVRDataset:
     # get frame times for each camera on sync clock
     # - nans correspond to frames not recorded on sync
     # - first nan is metadata frame
-    >>> d.frame_times['behavior']
-    array([     nan, 14.08409, 14.10075, ...,      nan,      nan,      nan])
+    >>> print(d.frame_times['behavior'])
+    [     nan 14.08409 14.10075 ...      nan      nan      nan]
     >>> d.validate()
     """
 

@@ -328,7 +328,7 @@ class MVRDataset:
         fig = plt.figure(figsize=(12, 6))
         ax_idx = 0
         for camera_name in ("face", "behavior"):
-            frame_times = self.frame_times[camera_name]  # type: ignore[index]
+            frame_times = self.frame_times[camera_name]
             ax_idx += 1
             closest_frame = get_closest_index(frame_times, time)
             v = self.video_data[camera_name]
@@ -339,7 +339,7 @@ class MVRDataset:
                 # because this method of getting the frame via cv2 is known to be
                 # unreliable (wrong fame fetched) with variable frame rate videos,
                 # verify from the barcode that the frame is correct:
-                frame_barcode: int = get_frame_number_from_barcode(v, self.info_data[camera_name], closest_frame)  # type: ignore[index]
+                frame_barcode: int = get_frame_number_from_barcode(v, self.info_data[camera_name], closest_frame)
                 if frame_barcode != closest_frame:
                     raise LookupError(
                         f"Frame number from barcode {frame_barcode} does not match expected requested frame number {closest_frame} for {camera_name}"
@@ -665,7 +665,7 @@ def get_video_frame_times(
                 f"{'' if apply_correction else ' (try getting frametimes with `apply_correction=True`)'}"
             )
         frame_times[camera_to_video_path[camera]] = camera_frame_times
-    return frame_times
+    return frame_times  # type: ignore[return-value]
 
 
 def get_cam_line_times_on_sync(

@@ -26,11 +26,11 @@ concurrency: # jobs currently running will be cancelled when this workflow start
 jobs:
   test:
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: true
       matrix:
-        python-version: ["3.9", "3.11"]
+        python-version: ["3.11"]
         os: [ubuntu-latest, macOS-latest, windows-latest]
     permissions: write-all
 
@@ -41,15 +41,13 @@ jobs:
         # use PAT, or push comes from `github-actions` bot, which can't trigger
         # other workflows   
     
-    - uses: pdm-project/setup-pdm@v4
+    - uses: astral-sh/setup-uv@v6
       with:
         python-version: ${{ matrix.python-version }}
-        update-python: true
-        cache: true # speeds-up setup by caching downloaded packages 
+        enable-cache: true
         
     - name: Install dependencies
-      run: |
-        pdm install -G dev
+      run: uv sync --group dev
         
     - name: Configure aws credentials
       env:
@@ -66,8 +64,8 @@ jobs:
         CODE_OCEAN_API_TOKEN: ${{ secrets.CODE_OCEAN_API_TOKEN }}
         CODE_OCEAN_DOMAIN: ${{ secrets.CODE_OCEAN_DOMAIN }}
       run: |
-        mkdir .mypy_cache   
-        pdm run test
+        uv run mypy src
+        uv run pytest --cov-report term-missing:skip-covered --cov-report=html
     
   publish:
     needs: test
@@ -80,18 +78,21 @@ jobs:
         fetch-depth: 0    # get all commits (on default branch)
         fetch-tags: true  
 
-    - uses: pdm-project/setup-pdm@v4
+    - uses: astral-sh/setup-uv@v6
       with:
         python-version: '3.11'
-        cache: true # speeds-up setup by caching downloaded packages 
+        enable-cache: true
 
     - name: Publish with bump & tag
       # actions/checkout 
       run: |
-        pdm install -G dev
         git config --global user.email "${{ github.actor }}@users.noreply.github.com"
         git config --global user.name "${{ github.actor }}"
-        pdm publish
+        uv version --bump patch
+        git commit -am "Bump"
+        uv build
+        uv publish
+        git tag "v$(uv version --short)"
         git push
         git push --tags
       env:

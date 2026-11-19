@@ -23,14 +23,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-      - uses: pdm-project/setup-pdm@main
+      - uses: astral-sh/setup-uv@v6
         with:
-          python-version: 3.x
-          cache: true
+          enable-cache: true
       - name: Build pages
         run: |
-          pdm install -G docs
-          cd docs && pdm run mkdocs build
+          uv sync --group docs
+          cd docs && uv run mkdocs build
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
         with:

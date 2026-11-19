@@ -5,7 +5,7 @@ authors = [
     { name = "Ben Hardcastle", email = "ben.hardcastle@alleninstitue.org" },
 ]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "npc-io>=0.1.20",
     "npc-sync>=0.1.25",
@@ -16,8 +16,6 @@ version = "0.1.18"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows",
@@ -50,8 +48,6 @@ npc_mvr = [
 
 [tool.black]
 target-version = [
-    "py39",
-    "py310",
     "py311",
 ]
 
@@ -79,7 +75,7 @@ src = [
 extend-exclude = [
     "tests/fixtures",
 ]
-target-version = "py39"
+target-version = "py311"
 
 [tool.ruff.flake8-tidy-imports]
 ban-relative-imports = "all"
@@ -158,16 +154,7 @@ known_first_party = [
     "npc_mvr",
 ]
 
-[tool.pdm]
-plugins = [
-    "pdm-bump",
-    "copier",
-]
-
-[tool.pdm.build]
-package-dir = "src"
-
-[tool.pdm.dev-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=7.4.0",
     "ruff>=0.0.282",
@@ -189,50 +176,4 @@ docs = [
     "mkdocs-material>=9.4",
     "mkdocs-minify-plugin>=0.7",
     "mkdocstrings[python]>=0.23",
-    "tomli>=2.0; python_version < '3.11'",
-]
-
-[tool.pdm.scripts]
-ruff = "ruff check src --fix-only"
-black = "black src"
-pytest = "pytest --cov-report term-missing:skip-covered --cov-report=html"
-mypy = "mypy src --install-types --non-interactive"
-log = "git-changelog -o CHANGELOG.md"
-dryrun = "pdm publish --repository testpypi --dry-run"
-post_init = "pdm install --plugins"
-
-[tool.pdm.scripts.test]
-composite = [
-    "pdm run mypy",
-    "pdm run pytest",
-]
-
-[tool.pdm.scripts.docs]
-shell = "cd docs && mkdocs serve"
-help = "Start the dev server for doc preview"
-
-[tool.pdm.scripts.bumpver]
-composite = [
-    "pdm self add pdm-bump",
-    "pdm bump micro",
-]
-
-[tool.pdm.scripts.tag]
-composite = [
-    "pdm self add pdm-bump",
-    "pdm bump tag",
-]
-
-[tool.pdm.scripts.pre_build]
-composite = [
-    "pdm run black",
-    "pdm run ruff",
-    "pdm run bumpver",
-]
-
-[tool.pdm.scripts.post_build]
-composite = [
-    "git commit -am 'Bump'",
-    "pdm run tag",
-    "pdm run log",
 ]

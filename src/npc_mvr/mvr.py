@@ -233,27 +233,31 @@ class MVRDataset:
     @npc_io.cached_property
     def augmented_camera_info(self) -> dict[CameraName, dict[str, Any]]:
         cam_exposing_times = get_cam_exposing_times_on_sync(self.sync_data)
-        cam_transfer_times = get_cam_transfer_times_on_sync(self.sync_data)
+        uncorrected_frame_times = {
+            get_camera_name(p.stem): times
+            for p, times in get_video_frame_times(
+                self.sync_data, *self.video_paths.values(), apply_correction=False
+            ).items()
+        }
         cam_exposing_falling_edge_times = get_cam_exposing_falling_edge_times_on_sync(
             self.sync_data
         )
         augmented_camera_info = {}
         for camera_name, video_path in self.video_paths.items():
             camera_info = dict(self.info_data[camera_name])  # copy
-            frames_lost = camera_info["FramesLostCount"]
-
             num_exposures = cam_exposing_times[camera_name].size
-            num_transfers = cam_transfer_times[camera_name].size
 
             num_frames_in_video = get_total_frames_in_video(video_path)
-            num_expected_from_sync = num_transfers - frames_lost + 1
+            # exposures in this recording on sync, minus MVR's lost frames, plus the metadata
+            # frame (`get_video_frame_times` before correction). Not from the readout lines:
+            # they can miss pulses and count every recording on the line.
+            num_expected_from_sync = len(uncorrected_frame_times[camera_name])
             signature_exposures = (
                 cam_exposing_falling_edge_times[camera_name][:10]
                 - cam_exposing_times[camera_name][:10]
             )
 
             camera_info["num_frames_exposed"] = num_exposures
-            camera_info["num_frames_transfered"] = num_transfers
             camera_info["num_frames_in_video"] = num_frames_in_video
             camera_info["num_frames_expected_from_sync"] = num_expected_from_sync
             camera_info["expected_minus_actual"] = (

@@ -651,6 +651,9 @@ class CameraFrameTimes:
     is_start_unknown: bool = False
     """The recording may have started inside an unknown interval, so frames can't be
     matched to exposures."""
+    ambiguous_intervals: tuple[tuple[float, float], ...] = ()
+    """Unknown intervals inside the recording where the number of exposures is ambiguous,
+    so frames after them can't be matched to exposures."""
 
     @property
     def num_frames_cut(self) -> int:
@@ -691,6 +694,11 @@ class CameraFrameTimes:
                 "recording may have started inside an interval where sync events are "
                 f"unknown {self.unknown_intervals}"
             )
+        if self.ambiguous_intervals:
+            return (
+                "number of exposures is ambiguous in intervals where sync events are "
+                f"unknown {self.ambiguous_intervals}"
+            )
         if max_frames_cut is not None and self.num_frames_cut > max_frames_cut:
             return (
                 f"{self.num_frames_cut} frame times would be cut from the end (limit "
@@ -719,6 +727,7 @@ class CameraFrameTimes:
             "lost_frame_percentage": self.lost_frame_percentage,
             "unknown_intervals": self.unknown_intervals,
             "is_start_unknown": self.is_start_unknown,
+            "ambiguous_intervals": self.ambiguous_intervals,
         }
 
 
@@ -727,26 +736,40 @@ def fill_unknown_intervals(
     unknown_intervals: Iterable[tuple[float, float]],
     period: float | None = None,
     max_gap_periods: float = 3,
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.bool_]]:
+    max_fraction: float = npc_sync.patch.PERIODIC_MAX_FRACTION,
+) -> tuple[
+    npt.NDArray[np.float64], npt.NDArray[np.bool_], tuple[tuple[float, float], ...]
+]:
     """Insert edges of a periodic signal in intervals where its events are unknown, so
-    edges keep their positions in the sequence. Returns (edges, mask of inserted edges).
+    edges keep their positions in the sequence. Returns (edges, mask of inserted edges,
+    intervals whose count is ambiguous).
 
     - only intervals with a recorded edge within `max_gap_periods` periods of each side are
       filled (the signal was running throughout); others are left as they are
     - the number inserted is the gap between the edges either side, in periods, minus 1
+    - if the gap isn't within `max_fraction` of a whole number of periods (the same gate
+      as `npc_sync`'s periodic reconstruction), the count is ambiguous: nothing is inserted
+      and the interval is returned in the third element
 
-    >>> edges, inserted = fill_unknown_intervals([0., 1., 2., 6., 7.], [(2.5, 5.5)])
+    A `SyncPatch` already reconstructs camera exposures wherever the count is clear, so with a
+    patched `SyncDataset` this only fills intervals that fail its other checks (e.g. rising
+    and falling edges disagree); it mainly matters for `on_invalid='mask'`.
+
+    >>> edges, inserted, ambiguous = fill_unknown_intervals([0., 1., 2., 6., 7.], [(2.5, 5.5)])
     >>> edges
     array([0., 1., 2., 3., 4., 5., 6., 7.])
     >>> inserted.nonzero()[0]
     array([3, 4, 5])
     >>> bool(fill_unknown_intervals([0., 1., 2., 106., 107.], [(10., 105.5)])[1].any())  # camera stopped before
     False
+    >>> fill_unknown_intervals([0., 1., 2., 6.5, 7.5], [(2.5, 6.)])[2]  # 4.5 periods
+    ((2.5, 6.0),)
     """
     edges = np.asarray(edges, dtype=np.float64)
     inserted = np.zeros(edges.shape, dtype=bool)
+    ambiguous: list[tuple[float, float]] = []
     if edges.size < 2:
-        return edges, inserted
+        return edges, inserted, ()
     if period is None:
         period = float(np.median(np.diff(edges)))
     for start, stop in sorted(unknown_intervals, reverse=True):  # insert from the end
@@ -760,17 +783,19 @@ def fill_unknown_intervals(
             continue
         n_periods = (after - before) / period
         n = round(n_periods) - 1
-        if abs(n_periods - round(n_periods)) > 0.25:
+        if abs(n_periods - round(n_periods)) > max_fraction:
             logger.warning(
                 f"Gap of {after - before:.4f} s around unknown interval {start}-{stop} s is "
-                f"{n_periods:.2f} periods: inserting {n} edges, but the count is uncertain"
+                f"{n_periods:.2f} periods: the number of edges inside is ambiguous"
             )
+            ambiguous.append((float(start), float(stop)))
+            continue
         if n < 1:
             continue
         new = np.linspace(before, after, n + 2)[1:-1]
         edges = np.insert(edges, idx, new)
         inserted = np.insert(inserted, idx, np.ones(n, dtype=bool))
-    return edges, inserted
+    return edges, inserted, tuple(sorted(ambiguous))
 
 
 def get_camera_frame_times(
@@ -815,7 +840,7 @@ def get_camera_frame_times(
         unknown_intervals = tuple(
             (float(a), float(b)) for a, b in sync_data.get_unknown_intervals(line)
         )
-        exposing_times, is_inserted = fill_unknown_intervals(
+        exposing_times, is_inserted, ambiguous_intervals = fill_unknown_intervals(
             exposing_times, unknown_intervals
         )
         if is_inserted.any():
@@ -880,6 +905,12 @@ def get_camera_frame_times(
                 f"interval where events on {line} are unknown {unknown_intervals}: frames "
                 "can't be matched to exposures"
             )
+        # an ambiguous count inside the recording shifts every later frame by an unknown amount
+        ambiguous_intervals = tuple(
+            (a, b)
+            for a, b in ambiguous_intervals
+            if exposing_times[0] <= a and b <= exposing_times[-1]
+        )
         lost_frames = get_lost_frames_from_camera_info(info)
         keep = np.ones(exposing_times.size, dtype=bool)
         keep[lost_frames[lost_frames < exposing_times.size].astype(int)] = False
@@ -898,6 +929,7 @@ def get_camera_frame_times(
             num_exposures_inserted=int(is_inserted.sum()),
             unknown_intervals=unknown_intervals,
             is_start_unknown=is_start_unknown,
+            ambiguous_intervals=ambiguous_intervals,
         )
     return results
 

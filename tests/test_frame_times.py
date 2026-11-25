@@ -47,7 +47,8 @@ def test_fill_unknown_intervals_keeps_positions() -> None:
     edges = np.arange(0, 10, period)
     unknown = (4.0, 4.5)
     recorded = edges[(edges < unknown[0]) | (edges > unknown[1])]
-    filled, inserted = npc_mvr.fill_unknown_intervals(recorded, [unknown])
+    filled, inserted, ambiguous = npc_mvr.fill_unknown_intervals(recorded, [unknown])
+    assert not ambiguous
     assert len(filled) == len(edges)
     np.testing.assert_allclose(filled, edges)
     assert inserted.sum() == len(edges) - len(recorded)
@@ -55,8 +56,15 @@ def test_fill_unknown_intervals_keeps_positions() -> None:
 
 def test_fill_unknown_intervals_ignores_idle_camera() -> None:
     edges = np.concatenate([np.arange(0, 1, 0.1), np.arange(100, 101, 0.1)])
-    filled, inserted = npc_mvr.fill_unknown_intervals(edges, [(50, 60)])
+    filled, inserted, _ = npc_mvr.fill_unknown_intervals(edges, [(50, 60)])
     assert not inserted.any() and len(filled) == len(edges)
+
+
+
+def test_ambiguous_count_excludes_camera() -> None:
+    c = _camera(num_exposures=1000, num_frames_recorded=1000, lost=0)
+    c = npc_mvr.CameraFrameTimes(**{**c.__dict__, "ambiguous_intervals": ((5.0, 6.0),)})
+    assert "ambiguous" in c.get_exclusion_reason()
 
 
 if __name__ == "__main__":

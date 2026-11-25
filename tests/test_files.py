@@ -1,5 +1,6 @@
 import numpy as np
 import npc_mvr
+import npc_sync
 
 def test_long_sync_sessions() -> None:
     """Sessions where sync + mvr were started up to 4 hours before the main
@@ -13,10 +14,15 @@ def test_long_sync_sessions() -> None:
         's3://aind-ephys-data/ecephys_660023_2023-08-09_08-09-09',
     ):
         mvr = npc_mvr.MVRDataset(raw_data_path)
+        # some of these files have replayed DAQ buffers: mask them (events unknown) rather
+        # than raising, which also exercises the handling of unknown intervals
+        sync = npc_sync.SyncDataset(
+            npc_sync.get_single_sync_path(mvr.sync_dir), on_invalid="mask"
+        )
         # this will error if there are problems with processing
         frame_times = npc_mvr.get_video_frame_times(
-            mvr.sync_data,
-            *mvr.video_paths.values(),
+            sync,
+            *mvr.all_video_paths.values(),
             apply_correction=False,
         )
         frame_time_lengths = [len(ft) for ft in frame_times.values()]
